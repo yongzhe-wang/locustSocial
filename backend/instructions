@@ -35,7 +35,7 @@ docker compose up -d --build
 docker compose ps
 
 
-
+6109022100
 
 cd ~/social_media_project/backend
 docker compose logs -f api
@@ -67,15 +67,82 @@ docker compose logs -f api
 
 
 
-SMOKE TEST
 
-# from the EC2 box
-curl http://127.0.0.1:8000/healthz
+@@@@@@@@@@Start backend
 
-# public (from anywhere)
-curl http://107-21-150-23.sslip.io/healthz
+cd /Users/thebigsun/Desktop/projects/social_media_project/social_media_project/backend
+source venv311/bin/activate
+export PG_DSN="postgres://app:secret@localhost:5432/app"
+export FIREBASE_WEBHOOK_SECRET=this-is-my-local-secret-3minutes
+set -a; source .env; set +a
+python - <<'PY'
+import os; print("COHERE_API_KEY present?" , bool(os.environ.get("COHERE_API_KEY")))
+print("FIREBASE_WEBHOOK_SECRET present?", bool(os.environ.get("FIREBASE_WEBHOOK_SECRET")))
+PY
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 
+
+Check sql
+
+Cd /Users/thebigsun/Desktop/projects/social_media_project/social_media_project/backend
+
+docker compose exec postgres psql -U app -d app
+
+SELECT id, title, body, created_at, (embedding IS NOT NULL) AS has_embedding
+FROM posts
+ORDER BY id;
+
+
+SELECT uid, created_at
+FROM users
+ORDER BY uid;
+
+
+SELECT uid, updated_at
+FROM user_embeddings
+ORDER BY uid;
+
+\q
+
+clear data
+TRUNCATE TABLE posts RESTART IDENTITY CASCADE;
+
+
+
+
+
+@@@@@firebase part
+firebase login
+
+
+cd /Users/thebigsun/Desktop/projects/social_media_project/social_media_project/firebase/firebase
+firebase emulators:start
+
+
+Update
+
+cd firebase/functions
+npm run build
+
+
+
+
+curl -sS -X POST http://127.0.0.1:8000/api/posts \
+  -F 'title=hello' \
+  -F 'body=world'
+
+curl -sS -X POST http://127.0.0.1:8000/api/posts \
+  -F 'title=cat' \
+  -F 'body=this is about animals'
+sleep 2
+
+
+
+
+curl -sS -X POST http://127.0.0.1:8000/api/search\
+  -H 'content-type: application/json' \
+  -d '{"q":"animals","limit":5}' | jq
 
 
 

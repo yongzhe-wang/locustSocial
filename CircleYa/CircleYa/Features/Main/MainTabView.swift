@@ -5,7 +5,7 @@ extension Notification.Name {
 }
 
 struct MainTabView: View {
-    enum Tab { case discover, nearby, create, messages, profile }
+    enum Tab { case discover, create, messages, profile }
     @State private var selection: Tab = .discover
 
     init() {
@@ -24,9 +24,9 @@ struct MainTabView: View {
                 .tabItem { Label("Discover", systemImage: "house.fill") }
                 .tag(Tab.discover)
 
-            NearbyView()
-                .tabItem { Label("Nearby", systemImage: "location.circle") }
-                .tag(Tab.nearby)
+//            NearbyView()
+//                .tabItem { Label("Nearby", systemImage: "location.circle") }
+//                .tag(Tab.nearby)
 
             CreatePostView()
                 .tabItem { Label("Create", systemImage: "plus.circle") }

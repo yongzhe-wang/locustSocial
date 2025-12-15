@@ -16,11 +16,15 @@ final class AppContainer {
     }
 }
 
+// CircleYa/DI/AppContainer.swift
+
 extension AppContainer {
     static var live: AppContainer {
-        .init(feedAPI: FirebaseFeedAPI())
+        // OLD: .init(feedAPI: FirebaseFeedAPI())
+        .init(feedAPI: PersonalizedFeedAPI(feed: FirebaseFeedAPI()))
     }
 }
+
 
 // MARK: - SwiftUI EnvironmentKey
 import SwiftUI

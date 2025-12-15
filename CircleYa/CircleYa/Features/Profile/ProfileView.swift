@@ -1,10 +1,10 @@
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
+import UIKit
 
 struct ProfileView: View {
     @State private var username: String = "First Last"
-    @State private var location: String = "Philadelphia, USA" // TODO: replace with real IP logic
     @State private var bio: String = "Tell something about yourself"
     @State private var profileImage: UIImage?
     @State private var selectedTab: ProfileTab = .notes
@@ -19,7 +19,7 @@ struct ProfileView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    // Avatar + Name + Location + Bio
+                    // Avatar + Name + Bio
                     VStack(spacing: 8) {
                         if let profileImage {
                             Image(uiImage: profileImage)
@@ -37,77 +37,68 @@ struct ProfileView: View {
                         }
 
                         Text(username)
-                            .font(.title2).bold()
-
-                        Text(location)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                            .font(.title2)
+                            .bold()
 
                         if !bio.isEmpty {
                             Text(bio)
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
+                                .font(.body)
+                                .foregroundColor(.primary)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal)
                         }
                     }
                     .padding(.top, 20)
 
-                    // Profile Buttons (QR + Edit)
-                    HStack(spacing: 20) {
-                        NavigationLink(destination: QRScannerView()) {
-                            VStack {
-                                Image(systemName: "qrcode.viewfinder").font(.title2)
-                                Text("Scan QR").font(.caption)
+                    // Centered followers / following
+                    HStack(spacing: 32) {
+                        if let uid = Auth.auth().currentUser?.uid {
+                            NavigationLink {
+                                FollowersListView(userId: uid)
+                            } label: {
+                                VStack(spacing: 2) {
+                                    Text("\(followerCount)")
+                                        .font(.headline)
+                                    Text("Followers")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
-                        }
-                        NavigationLink(
-                            destination: EditProfileView(
-                                username: $username,
-                                bio: $bio,
-                                profileImage: $profileImage
-                            )
-                        ) {
-                            VStack {
-                                Image(systemName: "pencil.circle").font(.title2)
-                                Text("Edit Profile").font(.caption)
+
+                            NavigationLink {
+                                FollowingListView(userId: uid)
+                            } label: {
+                                VStack(spacing: 2) {
+                                    Text("\(followingCount)")
+                                        .font(.headline)
+                                    Text("Following")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        } else {
+                            VStack(spacing: 2) {
+                                Text("\(followerCount)")
+                                    .font(.headline)
+                                Text("Followers")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            VStack(spacing: 2) {
+                                Text("\(followingCount)")
+                                    .font(.headline)
+                                Text("Following")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
                         }
                     }
+                    .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
-                    // Counts
-                    HStack(spacing: 24) {
-                        VStack {
-                            Text("\(followerCount)").bold()
-                            Text("Followers").font(.caption).foregroundStyle(.secondary)
-                        }
-                        VStack {
-                            Text("\(followingCount)").bold()
-                            Text("Following").font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.bottom, 4)
 
-                    // Sign Out
-                    Button { signOut() } label: {
-                        Text("Sign Out")
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .foregroundColor(.white)
-                            .background(Color.red)
-                            .cornerRadius(12)
-                    }
-                    .padding(.horizontal)
-                    .padding(.bottom, 10)
-
-                    if let errorMessage {
-                        Text(errorMessage)
-                            .foregroundColor(.red)
-                            .font(.footnote)
-                            .padding(.bottom, 5)
-                    }
-
-                    Divider().padding(.horizontal)
+                    Divider()
+                        .padding(.horizontal)
 
                     // Tabs
                     HStack {
@@ -116,12 +107,17 @@ struct ProfileView: View {
                                 selectedTab = tab
                             } label: {
                                 Text(tab.rawValue)
-                                    .font(.subheadline).bold()
+                                    .font(.subheadline)
+                                    .bold()
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 8)
                                     .background(
                                         RoundedRectangle(cornerRadius: 10)
-                                            .fill(selectedTab == tab ? Color.blue.opacity(0.15) : Color.clear)
+                                            .fill(
+                                                selectedTab == tab
+                                                ? Color.blue.opacity(0.15)
+                                                : Color.clear
+                                            )
                                     )
                             }
                             .foregroundColor(selectedTab == tab ? .blue : .primary)
@@ -129,28 +125,56 @@ struct ProfileView: View {
                     }
                     .padding(.horizontal)
 
-                    Divider().padding(.horizontal)
+                    Divider()
+                        .padding(.horizontal)
 
                     // Content
                     VStack(spacing: 12) {
                         switch selectedTab {
-                        case .notes:   NotesListView()
-                        case .history: HistoryListView()
-                        case .saved:   SavedListView()
+                        case .notes:
+                            NotesListView()
+                        case .history:
+                            HistoryListView()
+                        case .saved:
+                            SavedListView()
                         }
                     }
                     .padding(.horizontal)
                 }
                 .overlay {
-                    if isLoading { ProgressView("Loading…") }
+                    if isLoading {
+                        ProgressView("Loading…")
+                    }
                 }
             }
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
-            .task { await loadCurrentUser() }               // ← fetch on open
-            .refreshable { await loadCurrentUser() }        // ← pull to refresh
+            .toolbar {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    NavigationLink(
+                        destination: EditProfileView(
+                            username: $username,
+                            bio: $bio,
+                            profileImage: $profileImage
+                        )
+                    ) {
+                        Image(systemName: "pencil.circle")
+                            .imageScale(.large)
+                    }
+
+                    Button {
+                        signOut()
+                    } label: {
+                        Image(systemName: "arrow.right.square")
+                            .imageScale(.large)
+                            .foregroundColor(.red)
+                    }
+                }
+            }
+            .task { await loadCurrentUser() }
+            .refreshable { await loadCurrentUser() }
             .onReceive(NotificationCenter.default.publisher(for: .profileDidChange)) { _ in
-                Task { await loadCurrentUser() }            // ← update after edits
+                Task { await loadCurrentUser() }
             }
         }
     }
@@ -162,12 +186,26 @@ struct ProfileView: View {
             return
         }
 
-        await MainActor.run { isLoading = true; errorMessage = nil }
-        defer { Task { await MainActor.run { isLoading = false } } }
+        await MainActor.run {
+            isLoading = true
+            errorMessage = nil
+        }
+
+        defer {
+            Task {
+                await MainActor.run { isLoading = false }
+            }
+        }
 
         do {
             let doc = try await db.collection("users").document(uid).getDocument()
-            guard let data = doc.data() else { throw NSError(domain: "Profile", code: 0, userInfo: [NSLocalizedDescriptionKey: "User not found"]) }
+            guard let data = doc.data() else {
+                throw NSError(
+                    domain: "Profile",
+                    code: 0,
+                    userInfo: [NSLocalizedDescriptionKey: "User not found"]
+                )
+            }
 
             let displayName: String = {
                 let raw = data["displayName"] as? String ?? ""
@@ -175,7 +213,7 @@ struct ProfileView: View {
                 return trimmed.isEmpty ? "First Last" : trimmed
             }()
 
-            let bio = (data["bio"] as? String) ?? ""
+            let bio = data["bio"] as? String ?? ""
             let avatarURLString = data["avatarURL"] as? String
 
             await MainActor.run {
@@ -190,18 +228,19 @@ struct ProfileView: View {
                         await MainActor.run { self.profileImage = img }
                     }
                 } catch {
-                    // don’t fail the screen if avatar download fails
                     print("⚠️ Avatar download failed:", error.localizedDescription)
                 }
             } else {
                 await MainActor.run { self.profileImage = nil }
             }
-            async let followersSnap = db.collection("users")
+
+            // Followers / following in parallel
+            async let followersSnap = try db.collection("users")
                 .document(uid)
                 .collection("followers")
                 .getDocuments()
 
-            async let followingSnap = db.collection("users")
+            async let followingSnap = try db.collection("users")
                 .document(uid)
                 .collection("following")
                 .getDocuments()
@@ -213,7 +252,9 @@ struct ProfileView: View {
                 self.followingCount = gSnap.documents.count
             }
         } catch {
-            await MainActor.run { self.errorMessage = "Failed to load profile: \(error.localizedDescription)" }
+            await MainActor.run {
+                self.errorMessage = "Failed to load profile: \(error.localizedDescription)"
+            }
         }
     }
 
@@ -229,9 +270,11 @@ struct ProfileView: View {
     }
 }
 
+// MARK: - Notifications & Tabs
+
 extension Notification.Name {
     static let userDidSignOut = Notification.Name("userDidSignOut")
-    static let profileDidChange = Notification.Name("profileDidChange") // post this after saving in EditProfileView
+    static let profileDidChange = Notification.Name("profileDidChange")
 }
 
 enum ProfileTab: String, CaseIterable {

@@ -20,6 +20,13 @@ struct OtherUserProfileView: View {
     private let db = Firestore.firestore()
     private let api = FirebaseFeedAPI()
 
+    // DM
+    @State private var isMutual: Bool = false
+    @State private var activeThread: DMThread? = nil
+    @State private var alertText: String? = nil
+    @State private var navigateToChat = false
+    private let dmAPI = FirebaseMessagesAPI()
+
     private var currentUid: String? { Auth.auth().currentUser?.uid }
     private var isViewingSelf: Bool { currentUid == userId }
 
@@ -28,35 +35,53 @@ struct OtherUserProfileView: View {
             VStack(spacing: 16) {
                 header
 
-                if !isViewingSelf {
-                    Button(action: { Task { await toggleFollow() } }) {
-                        HStack {
-                            if isTogglingFollow { ProgressView() }
-                            Text(isFollowing ? "Unfollow" : "Follow")
-                                .fontWeight(.semibold)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(isFollowing ? Color.secondary.opacity(0.15) : Color.accentColor)
-                        .foregroundStyle(isFollowing ? AnyShapeStyle(.primary) : AnyShapeStyle(.white))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                // FOLLOW centered under header
+                if let u = user, !isViewingSelf {
+                    HStack {
+                        Spacer()
+                        FollowButton(
+                            user: u,
+                            isFollowing: $isFollowing,
+                            onCountsDelta: { delta in
+                                followerCount = max(0, followerCount + delta)
+                            },
+                            onMutualChange: { mutual in
+                                isMutual = mutual
+                            }
+                        )
+                        .frame(width: 160)
+                        .buttonStyle(.borderedProminent)
+                        Spacer()
                     }
-                    .disabled(isTogglingFollow || currentUid == nil)
                     .padding(.horizontal)
                 }
 
                 HStack(spacing: 24) {
-                    VStack { Text("\(followerCount)").bold(); Text("Followers").font(.caption).foregroundStyle(.secondary) }
-                    VStack { Text("\(followingCount)").bold(); Text("Following").font(.caption).foregroundStyle(.secondary) }
+                    VStack {
+                        Text("\(followerCount)").bold()
+                        Text("Followers")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    VStack {
+                        Text("\(followingCount)").bold()
+                        Text("Following")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .padding(.bottom, 4)
 
-                Divider().padding(.horizontal)
+                Divider()
+                    .padding(.horizontal)
 
                 if isLoading {
-                    ProgressView("Loading…").padding()
+                    ProgressView("Loading…")
+                        .padding()
                 } else if let error {
-                    Text(error).foregroundStyle(.red).padding()
+                    Text(error)
+                        .foregroundStyle(.red)
+                        .padding()
                 } else {
                     MasonryLayout(columns: 2, spacing: 8) {
                         ForEach(posts) { p in
@@ -73,18 +98,59 @@ struct OtherUserProfileView: View {
         }
         .navigationTitle(user?.displayName.isEmpty == false ? user!.displayName : "Profile")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // MESSAGE button in top-right
+            if let _ = user, !isViewingSelf {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task { await startChat() }
+                    } label: {
+                        Label("Message", systemImage: "paperplane")
+                    }
+                }
+            }
+        }
         .task { await load() }
         .refreshable { await load() }
+        .background(
+            NavigationLink(
+                isActive: $navigateToChat,
+                destination: {
+                    if let thread = activeThread, let u = user {
+                        ChatView(thread: thread, otherUser: u, isMutual: isMutual)
+                    } else {
+                        EmptyView()
+                    }
+                },
+                label: { EmptyView() }
+            )
+            .hidden()
+        )
+        .alert(
+            "Heads up",
+            isPresented: Binding(
+                get: { alertText != nil },
+                set: { if !$0 { alertText = nil } }
+            )
+        ) {
+            Button("OK") { alertText = nil }
+        } message: {
+            Text(alertText ?? "")
+        }
     }
 
     // MARK: - Header
-    @ViewBuilder private var header: some View {
+
+    @ViewBuilder
+    private var header: some View {
         VStack(spacing: 10) {
             if let u = user, let url = u.avatarURL {
                 AsyncImage(url: url) { ph in
                     switch ph {
-                    case .success(let img): img.resizable().scaledToFill()
-                    default: Color.gray.opacity(0.15)
+                    case .success(let img):
+                        img.resizable().scaledToFill()
+                    default:
+                        Color.gray.opacity(0.15)
                     }
                 }
                 .frame(width: 100, height: 100)
@@ -92,12 +158,16 @@ struct OtherUserProfileView: View {
                 .shadow(radius: 4)
             } else {
                 Image(systemName: "person.crop.circle.fill")
-                    .resizable().scaledToFit()
+                    .resizable()
+                    .scaledToFit()
                     .frame(width: 100, height: 100)
                     .foregroundStyle(.secondary)
             }
 
-            Text(user?.displayName ?? " ").font(.title3).bold()
+            Text(user?.displayName ?? " ")
+                .font(.title3)
+                .bold()
+
             if let bio = user?.bio, !bio.isEmpty {
                 Text(bio)
                     .font(.footnote)
@@ -110,23 +180,33 @@ struct OtherUserProfileView: View {
     }
 
     // MARK: - Load profile, posts, and follow state
+
     private func load() async {
-        await MainActor.run { isLoading = true; error = nil }
-        defer { Task { await MainActor.run { isLoading = false } } }
+        await MainActor.run {
+            isLoading = true
+            error = nil
+        }
+        defer {
+            Task { await MainActor.run { isLoading = false } }
+        }
 
         do {
             // Profile
             let doc = try await db.collection("users").document(userId).getDocument()
             let data = doc.data() ?? [:]
             let avatar = (data["avatarURL"] as? String).flatMap(URL.init(string:))
+
             let u = User(
                 id: userId,
-                idForUsers: (data["idForUsers"] as? String) ?? (data["handle"] as? String) ?? "user",
+                idForUsers: (data["idForUsers"] as? String)
+                    ?? (data["handle"] as? String)
+                    ?? "user",
                 displayName: (data["displayName"] as? String) ?? "Unknown",
                 email: (data["email"] as? String) ?? "",
                 avatarURL: avatar,
                 bio: data["bio"] as? String
             )
+
             await MainActor.run { self.user = u }
 
             // Posts
@@ -146,6 +226,18 @@ struct OtherUserProfileView: View {
 
             // Follow state + counts
             await loadFollowStateAndCounts()
+
+            // Mutual follow state for DM gate
+            if let uMe = Auth.auth().currentUser?.uid, uMe != userId {
+                let myFollowing = try await db.collection("users").document(uMe)
+                    .collection("following").document(userId).getDocument()
+                let theyFollowMe = try await db.collection("users").document(userId)
+                    .collection("following").document(uMe).getDocument()
+
+                await MainActor.run {
+                    self.isMutual = myFollowing.exists && theyFollowMe.exists
+                }
+            }
         } catch {
             await MainActor.run { self.error = error.localizedDescription }
         }
@@ -164,7 +256,8 @@ struct OtherUserProfileView: View {
             .collection("following").count.getAggregation(source: .server)
 
         do {
-            let (followDoc, followersAgg, followingAgg) = try await (isFollowingDoc, followersCountAgg, followingCountAgg)
+            let (followDoc, followersAgg, followingAgg) =
+                try await (isFollowingDoc, followersCountAgg, followingCountAgg)
 
             await MainActor.run {
                 self.isFollowing = followDoc.exists
@@ -176,42 +269,27 @@ struct OtherUserProfileView: View {
         }
     }
 
-    // MARK: - Follow / Unfollow
-    private func toggleFollow() async {
-        guard let me = currentUid, me != userId else { return }
-        if isTogglingFollow { return }
-        await MainActor.run { isTogglingFollow = true }
-        defer { Task { await MainActor.run { isTogglingFollow = false } } }
+    // MARK: - Start chat
 
-        let myFollowing = db.collection("users").document(me).collection("following").document(userId)
-        let theirFollowers = db.collection("users").document(userId).collection("followers").document(me)
+    private func startChat() async {
+        guard !isViewingSelf else { return }
 
         do {
-            let currentlyFollowing = try await myFollowing.getDocument().exists
-            let batch = db.batch()
+            let thread = try await dmAPI.ensureDMThread(with: userId)
+            let allowed = try await dmAPI.canSendMessage(in: thread.id, isMutual: isMutual)
 
-            if currentlyFollowing {
-                // UNFOLLOW: remove both pointers
-                batch.deleteDocument(myFollowing)
-                batch.deleteDocument(theirFollowers)
-                await MainActor.run {
-                    self.isFollowing = false
-                    self.followerCount = max(0, self.followerCount - 1)
-                }
-            } else {
-                // FOLLOW: create both pointers
-                let now: [String: Any] = ["createdAt": FieldValue.serverTimestamp()]
-                batch.setData(now, forDocument: myFollowing)
-                batch.setData(now, forDocument: theirFollowers)
-                await MainActor.run {
-                    self.isFollowing = true
-                    self.followerCount += 1
+            await MainActor.run {
+                if allowed {
+                    activeThread = thread
+                    navigateToChat = true
+                } else {
+                    alertText = "You’ve already sent a message. You can send more once they reply."
                 }
             }
-
-            try await batch.commit()
         } catch {
-            print("❌ toggleFollow failed:", error.localizedDescription)
+            await MainActor.run {
+                alertText = error.localizedDescription
+            }
         }
     }
 }

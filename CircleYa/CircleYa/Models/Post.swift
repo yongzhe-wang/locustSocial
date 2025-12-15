@@ -8,9 +8,11 @@ struct Post: Identifiable, Codable, Hashable {
     let media: [Media]
     let tags: [String]
     let createdAt: Date
+    let title:String
     var likeCount: Int
     var saveCount: Int
     var commentCount: Int
+    
 }
 
 struct FeedPage: Codable {

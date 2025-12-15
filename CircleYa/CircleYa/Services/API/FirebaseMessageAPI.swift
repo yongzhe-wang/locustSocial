@@ -1,96 +1,190 @@
+// CircleYa/Services/API/FirebaseMessageAPI.swift
+
+import Foundation
 import FirebaseFirestore
 import FirebaseAuth
 
-struct FirebaseMessageAPI {
+// MARK: - Models
+
+struct DMThread: Identifiable, Hashable {
+    let id: String        // Firestore document id
+    let members: [String] // user ids, always sorted
+}
+
+struct DMMessage: Identifiable, Hashable {
+    let id: String
+    let threadId: String
+    let senderId: String
+    let text: String
+    let createdAt: Date?
+
+    static func from(_ doc: QueryDocumentSnapshot) -> DMMessage {
+        let data = doc.data()
+        return DMMessage(
+            id: doc.documentID,
+            threadId: data["threadId"] as? String ?? "",
+            senderId: data["senderId"] as? String ?? "",
+            text: data["text"] as? String ?? "",
+            createdAt: (data["createdAt"] as? Timestamp)?.dateValue()
+        )
+    }
+}
+
+// MARK: - API
+
+struct FirebaseMessagesAPI {
     private let db = Firestore.firestore()
 
-    struct ChatMessage: Codable {
-        var id: String
-        var senderId: String
-        var text: String
-        var createdAt: Date
+    // Root collection for all DM threads
+    private var threadsCollection: CollectionReference {
+        db.collection("dmThreads")
     }
 
-    // Create or fetch a conversation
-    func getOrCreateConversation(with otherUserId: String) async throws -> String {
-        guard let currentUserId = Auth.auth().currentUser?.uid else {
+    private func threadDoc(_ id: String) -> DocumentReference {
+        threadsCollection.document(id)
+    }
+
+    private func messagesCollection(_ threadId: String) -> CollectionReference {
+        threadDoc(threadId).collection("messages")
+    }
+
+    // MARK: Thread creation / lookup
+
+    /// Create or find the unique thread between current user and `otherUserId`.
+    func ensureDMThread(with otherUserId: String) async throws -> DMThread {
+        guard let me = Auth.auth().currentUser?.uid else {
             throw URLError(.userAuthenticationRequired)
         }
+        precondition(me != otherUserId, "DM with self is not supported")
 
-        let participants = [currentUserId, otherUserId].sorted()
-        let conversationId = participants.joined(separator: "_")
+        // canonical pair id
+        let pair = [me, otherUserId].sorted()
+        let threadId = pair.joined(separator: "_")
+        let ref = threadDoc(threadId)
 
-        let docRef = db.collection("messages").document(conversationId)
-        let doc = try await docRef.getDocument()
-
-        if !doc.exists {
-            try await docRef.setData([
-                "participants": participants,
-                "lastMessage": "",
-                "updatedAt": FieldValue.serverTimestamp()
+        let snap = try await ref.getDocument()
+        if !snap.exists {
+            try await ref.setData([
+                "members": pair,
+                "createdAt": FieldValue.serverTimestamp(),
+                "lastMessageText": "",
+                "lastMessageAt": FieldValue.serverTimestamp(),
+                "lastSenderId": ""
             ])
         }
 
-        return conversationId
+        return DMThread(id: threadId, members: pair)
     }
 
-    // Send a message
-    func sendMessage(to otherUserId: String, text: String) async throws {
-        let conversationId = try await getOrCreateConversation(with: otherUserId)
-        guard let senderId = Auth.auth().currentUser?.uid else { return }
+    // MARK: Messages
 
-        let messageId = UUID().uuidString
-        let messageData: [String: Any] = [
-            "id": messageId,
-            "senderId": senderId,
-            "text": text,
-            "createdAt": FieldValue.serverTimestamp()
-        ]
+    func sendMessage(threadId: String, text: String) async throws {
+        guard let me = Auth.auth().currentUser?.uid else {
+            throw URLError(.userAuthenticationRequired)
+        }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
 
-        let conversationRef = db.collection("messages").document(conversationId)
-        try await conversationRef.collection("messages").document(messageId).setData(messageData)
+        let msgs = messagesCollection(threadId)
+        let msgRef = msgs.document()
+        let ts = FieldValue.serverTimestamp()
 
-        try await conversationRef.updateData([
-            "lastMessage": text,
-            "updatedAt": FieldValue.serverTimestamp()
+        // write message
+        try await msgRef.setData([
+            "id": msgRef.documentID,
+            "threadId": threadId,
+            "senderId": me,
+            "text": trimmed,
+            "createdAt": ts
         ])
+
+        // update thread summary
+        try await threadDoc(threadId).setData([
+            "lastMessageText": trimmed,
+            "lastMessageAt": ts,
+            "lastSenderId": me
+        ], merge: true)
     }
 
-    // Fetch messages in a conversation
-    // Fetch messages in a conversation
-    func fetchMessages(with otherUserId: String) async throws -> [ChatMessage] {
-        let conversationId = try await getOrCreateConversation(with: otherUserId)
-        let snapshot = try await db.collection("messages")
-            .document(conversationId)
-            .collection("messages")
+    /// Live query for a thread’s messages, oldest → newest.
+    func messagesQuery(threadId: String) -> Query {
+        messagesCollection(threadId)
             .order(by: "createdAt", descending: false)
+    }
+
+    // MARK: Gating logic
+
+    /// If not mutual, allow only one outgoing message from `me` in this thread.
+    func canSendMessage(in threadId: String, isMutual: Bool) async throws -> Bool {
+        guard let me = Auth.auth().currentUser?.uid else {
+            throw URLError(.userAuthenticationRequired)
+        }
+        if isMutual { return true }
+
+        let snap = try await messagesCollection(threadId)
+            .whereField("senderId", isEqualTo: me)
+            .limit(to: 1)
             .getDocuments()
 
-        return snapshot.documents.compactMap { doc in
-            let data = doc.data()
-
-            guard
-                let senderId = data["senderId"] as? String,
-                let text = data["text"] as? String
-            else {
-                return nil
-            }
-
-            // Firestore serverTimestamp() can be nil right after write; be defensive.
-            let createdAt: Date
-            if let ts = data["createdAt"] as? Timestamp {
-                createdAt = ts.dateValue()
-            } else {
-                createdAt = Date()
-            }
-
-            return ChatMessage(
-                id: doc.documentID,
-                senderId: senderId,
-                text: text,
-                createdAt: createdAt
-            )
-        }
+        return snap.documents.isEmpty   // true = still allowed to send first message
     }
 
+    // MARK: Thread list (for MessagesView)
+
+    /// All threads that involve `userId`, ordered by last message time.
+    func threadsQuery(for userId: String) -> Query {
+        threadsCollection
+            .whereField("members", arrayContains: userId)
+            .order(by: "lastMessageAt", descending: true)
+    }
+
+    /// Build a `ConversationItem` row given a thread snapshot.
+    func buildConversationItem(
+        from doc: QueryDocumentSnapshot,
+        currentUserId me: String
+    ) async -> ConversationItem? {
+
+        let data = doc.data()
+        let members = data["members"] as? [String] ?? []
+        guard let otherId = members.first(where: { $0 != me }) ?? members.first else {
+            return nil
+        }
+
+        // Fetch other user's profile
+        let userDoc: DocumentSnapshot
+        do {
+            userDoc = try await db.collection("users").document(otherId).getDocument()
+        } catch {
+            print("⚠️ buildConversationItem: user fetch failed:", error.localizedDescription)
+            return nil
+        }
+
+        let uData = userDoc.data() ?? [:]
+        let avatarURL = (uData["avatarURL"] as? String).flatMap(URL.init(string:))
+
+        let otherUser = User(
+            id: otherId,
+            idForUsers: (uData["idForUsers"] as? String)
+                ?? (uData["handle"] as? String)
+                ?? (uData["email"] as? String)?.components(separatedBy: "@").first
+                ?? "user",
+            displayName: (uData["displayName"] as? String) ?? "Unknown",
+            email: (uData["email"] as? String) ?? "",
+            avatarURL: avatarURL,
+            bio: uData["bio"] as? String
+        )
+
+        let lastText = (data["lastMessageText"] as? String) ?? ""
+        let lastAt = (data["lastMessageAt"] as? Timestamp)?.dateValue()
+
+        let thread = DMThread(id: doc.documentID, members: members)
+
+        return ConversationItem(
+            id: doc.documentID,
+            thread: thread,
+            otherUser: otherUser,
+            lastMessagePreview: lastText.isEmpty ? "Tap to view messages" : lastText,
+            lastMessageAt: lastAt
+        )
+    }
 }

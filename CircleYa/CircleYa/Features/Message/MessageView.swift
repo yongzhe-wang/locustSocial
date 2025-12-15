@@ -1,62 +1,52 @@
 import SwiftUI
+import FirebaseAuth
 
 struct MessagesView: View {
+    @StateObject private var vm: ThreadsVM
+
+    init() {
+        _vm = StateObject(wrappedValue: ThreadsVM())
+    }
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                // Top buttons row
-                HStack(spacing: 20) {
-                    NavigationLink(destination: LikesDetailView()) {
-                        VStack {
-                            Image(systemName: "heart.fill")
-                                .font(.largeTitle)
-                                .foregroundColor(.red)
-                            Text("Likes")
-                                .font(.caption)
-                        }
-                    }
-                    Spacer()
-                    NavigationLink(destination: CommentsDetailView()) {
-                        VStack {
-                            Image(systemName: "text.bubble.fill")
-                                .font(.largeTitle)
-                                .foregroundColor(.blue)
-                            Text("Comments")
-                                .font(.caption)
-                        }
-                    }
-                    Spacer()
-                    NavigationLink(destination: FollowersDetailView()) {
-                        VStack {
-                            Image(systemName: "person.crop.circle.badge.plus")
-                                .font(.largeTitle)
-                                .foregroundColor(.green)
-                            Text("Followers")
-                                .font(.caption)
-                        }
-                    }
-                }
-                .padding(.horizontal, 24)
-                .padding(.top, 12)
-
-                Divider()
 
                 // Conversations list
                 List {
                     Section(header: Text("Conversations")) {
-                        ForEach(0..<10, id: \.self) { i in
-                            NavigationLink(destination: ChatView(username: "User \(i)")) {
-                                HStack(spacing: 12) {
-                                    Circle()
-                                        .fill(Color.blue.opacity(0.2))
-                                        .frame(width: 44, height: 44)
-                                        .overlay(Text("\(i)").font(.caption))
-                                    VStack(alignment: .leading) {
-                                        Text("User \(i)")
-                                            .font(.headline)
-                                        Text("Last message preview...")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
+                        if vm.items.isEmpty {
+                            Text("No conversations yet")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(vm.items) { item in
+                                NavigationLink(
+                                    destination: ChatView(
+                                        thread: item.thread,
+                                        otherUser: item.otherUser,
+                                        isMutual: false   // or your real mutual flag
+                                    )
+                                ) {
+                                    HStack(spacing: 12) {
+                                        Circle()
+                                            .fill(Color.blue.opacity(0.2))
+                                            .frame(width: 44, height: 44)
+
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(item.otherUser.displayName)
+                                                .font(.headline)
+
+                                            Text(item.lastMessagePreview)
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+
+                                        Spacer()
+
+                                        if let ts = item.lastMessageAt {
+                                            Text(ts.formatted(date: .omitted, time: .shortened))
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                        }
                                     }
                                 }
                             }
@@ -64,7 +54,12 @@ struct MessagesView: View {
                     }
                 }
             }
-            .navigationTitle("Messages")
+            .task {
+                vm.start()
+            }
+            .onDisappear {
+                vm.stop()
+            }
         }
     }
-}
+

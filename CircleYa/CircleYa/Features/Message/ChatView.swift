@@ -1,57 +1,70 @@
+// Features/Messages/ChatView.swift
 import SwiftUI
 
 struct ChatView: View {
-    let username: String
-    @State private var messageText: String = ""
-    @State private var messages: [String] = [
-        "Hey there!", "How's it going?"
-    ]
+    let thread: DMThread
+    let otherUser: User
+    let isMutual: Bool
+
+    @State private var text: String = ""
+    @State private var sending = false
+    @State private var blocked = false
+    private let dmAPI = FirebaseMessagesAPI()
 
     var body: some View {
-        VStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(messages.indices, id: \.self) { i in
-                        HStack {
-                            if i % 2 == 0 {
-                                // Incoming message
-                                Text(messages[i])
-                                    .padding()
-                                    .background(Color.gray.opacity(0.2))
-                                    .cornerRadius(12)
-                                    .frame(maxWidth: 250, alignment: .leading)
-                            } else {
-                                // Outgoing message
-                                Spacer()
-                                Text(messages[i])
-                                    .padding()
-                                    .background(Color.blue.opacity(0.8))
-                                    .foregroundColor(.white)
-                                    .cornerRadius(12)
-                                    .frame(maxWidth: 250, alignment: .trailing)
-                            }
+        VStack(spacing: 0) {
+            // Messages list (your existing implementation)
+            MessagesList(thread: thread)
+
+            // Input bar
+            VStack(spacing: 8) {
+                if blocked {
+                    Text("Waiting for a reply to continue.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    TextField("Message \(otherUser.displayName)…", text: $text)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(blocked)
+                    Button {
+                        Task {
+                            await send()
                         }
-                    }
+                    } label: { Text("Send") }
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || blocked || sending)
                 }
-                .padding()
-            }
-
-            Divider()
-
-            HStack {
-                TextField("Message...", text: $messageText)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                Button("Send") {
-                    if !messageText.isEmpty {
-                        messages.append(messageText)
-                        messageText = ""
-                    }
-                }
-                .buttonStyle(.borderedProminent)
             }
             .padding()
         }
-        .navigationTitle(username)
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(otherUser.displayName)
+        .task {
+            await refreshGate()
+        }
+    }
+
+    private func refreshGate() async {
+        do {
+            let allowed = try await dmAPI.canSendMessage(in: thread.id, isMutual: isMutual)
+            await MainActor.run { blocked = !allowed }
+        } catch {
+            await MainActor.run { blocked = false } // fail open on UI; server rules should still enforce
+        }
+    }
+
+    private func send() async {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        sending = true
+        do {
+            try await dmAPI.sendMessage(threadId: thread.id, text: text.trimmingCharacters(in: .whitespacesAndNewlines))
+            text = ""
+            // after sending, if non-mutual we should block until reply
+            if !isMutual {
+                blocked = true
+            }
+        } catch {
+            // handle error toast
+        }
+        sending = false
     }
 }

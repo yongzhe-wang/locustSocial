@@ -143,7 +143,10 @@ struct EditProfileView: View {
         if let avatarURL { updateData["avatarURL"] = avatarURL }
 
         do {
+            // EditProfileView.saveChanges()
             try await db.collection("users").document(user.uid).setData(updateData, merge: true)
+            NotificationCenter.default.post(name: .profileDidChange, object: nil)
+            Task { await UserCache.shared.invalidate(user.uid) }
             username = newDisplayName
             print("✅ Profile updated successfully")
         } catch {

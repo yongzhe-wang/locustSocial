@@ -1,10 +1,10 @@
 // Features/Feed/FeedCard.swift
 import SwiftUI
-
 struct FeedCard: View {
     var post: Post
     var showActions: Bool = true
     var captionLines: Int = 2
+    var showCaption: Bool = true
 
     // clamp portrait/square variety
     private let aspectRange: ClosedRange<CGFloat> = 1.9...2.5
@@ -22,73 +22,99 @@ struct FeedCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
 
-            // IMAGE (fixed width by MasonryLayout, height clamped)
-            AsyncImage(url: post.media.first?.thumbURL ?? post.media.first?.url) { phase in
-                switch phase {
-                case .empty:
-                    Rectangle()
-                        .fill(.gray.opacity(0.12))
-                        .aspectRatio(clampedAspect, contentMode: .fit)
-                        .frame(minHeight: minImageH)
-                        .clipShape(RoundedRectangle(cornerRadius: corner))
-
-                case .success(let img):
-                    img.resizable()
-                        .scaledToFill()
-                        .aspectRatio(clampedAspect, contentMode: .fit)
-                        .clipShape(RoundedRectangle(cornerRadius: corner))
-                        .clipped()
-                        .overlay(
-                            LinearGradient(colors: [.clear, .black.opacity(0.55)],
-                                           startPoint: .top, endPoint: .bottom)
+            // IMAGE OR TEXT THUMBNAIL
+            Group {
+                if let firstMedia = post.media.first {
+                    AsyncImage(url: firstMedia.thumbURL ?? firstMedia.url) { phase in
+                        switch phase {
+                        case .empty:
+                            Rectangle()
+                                .fill(.gray.opacity(0.12))
+                                .aspectRatio(clampedAspect, contentMode: .fit)
+                                .frame(minHeight: minImageH, maxHeight: maxImageH)
                                 .clipShape(RoundedRectangle(cornerRadius: corner))
-                        )
-                        .overlay(alignment: .topTrailing) {
-                            if post.media.count > 1 {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "photo.on.rectangle")
-                                    Text("\(post.media.count)").fontWeight(.semibold)
+
+                        case .success(let img):
+                            img.resizable()
+                                .scaledToFill()
+                                .aspectRatio(clampedAspect, contentMode: .fit)
+                                .frame(maxHeight: maxImageH)
+                                .clipShape(RoundedRectangle(cornerRadius: corner))
+                                .clipped()
+                                .overlay(
+                                    LinearGradient(
+                                        colors: [.clear, .black.opacity(0.55)],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                    .clipShape(RoundedRectangle(cornerRadius: corner))
+                                )
+                                .overlay(alignment: .topTrailing) {
+                                    if post.media.count > 1 {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "photo.on.rectangle")
+                                            Text("\(post.media.count)").fontWeight(.semibold)
+                                        }
+                                        .font(.caption2)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(.ultraThinMaterial, in: Capsule())
+                                        .padding(10)
+                                    }
                                 }
-                                .font(.caption2)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(.ultraThinMaterial, in: Capsule())
-                                .padding(10)
-                            }
+
+                        case .failure:
+                            Rectangle()
+                                .fill(.gray.opacity(0.12))
+                                .aspectRatio(clampedAspect, contentMode: .fit)
+                                .frame(minHeight: minImageH, maxHeight: maxImageH)
+                                .clipShape(RoundedRectangle(cornerRadius: corner))
+                                .overlay(Image(systemName: "photo").foregroundColor(.gray))
+
+                        @unknown default:
+                            EmptyView()
                         }
+                    }
+                    .transaction { $0.animation = nil }
 
-                case .failure:
-                    Rectangle()
-                        .fill(.gray.opacity(0.12))
-                        .aspectRatio(clampedAspect, contentMode: .fit)
-                        .frame(minHeight: minImageH)
-                        .clipShape(RoundedRectangle(cornerRadius: corner))
-                        .overlay(Image(systemName: "photo").foregroundColor(.gray))
-
-                @unknown default:
-                    EmptyView()
+                } else {
+                    // No image: use a cute text-based thumbnail
+                    TextThumbnailView(
+                        title: post.title.isEmpty ? post.text : post.title,
+                        cornerRadius: corner
+                    )
+                    .frame(minHeight: minImageH, maxHeight: maxImageH)
                 }
             }
-            .transaction { $0.animation = nil }
 
-            Text(post.text)
-                .font(.caption)                // smaller than subheadline
-                .foregroundStyle(.primary)
-                .lineLimit(2)                  // maximum 2 lines
-                .truncationMode(.tail)         // truncate with "..."
-                .padding(.horizontal, 6)
+            // Caption below card; hide when there is no media to avoid repetition
+            if showCaption && !post.media.isEmpty {
+                if !post.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(post.title)
+                        .font(.footnote)
+                        .foregroundStyle(.primary)
+                        .lineLimit(captionLines)
+                        .padding(.horizontal, 6)
+                } else {
+                    Text(post.text)
+                        .font(.footnote)
+                        .foregroundStyle(.primary)
+                        .lineLimit(captionLines)
+                        .truncationMode(.tail)
+                        .padding(.horizontal, 6)
+                }
+            }
 
-            // FOOTER
             // FOOTER
             HStack(spacing: 10) {
-                // ⬇️ Avatar + name open OtherUserProfileView
                 NavigationLink(value: post.author) {
                     HStack(spacing: 10) {
                         AvatarView(user: post.author, size: 15)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(post.author.displayName)
                                 .font(.caption2).fontWeight(.semibold)
-                                .lineLimit(1).truncationMode(.tail)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                         }
                     }
                 }
@@ -102,7 +128,10 @@ struct FeedCard: View {
             }
         }
         .padding(4)
-        .background(RoundedRectangle(cornerRadius: 16).fill(Color(UIColor.secondarySystemBackground)))
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(UIColor.secondarySystemBackground))
+        )
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: .black.opacity(0.05), radius: 8, y: 4)
     }
@@ -122,13 +151,19 @@ private struct IconCount: View {
         }
     }
 }
+//
 
-// MARK: - Like / Save Buttons
+//
+//  PostActionsView 2.swift
+//  CircleYa
+//
+//  Created by Andrew Wang on 11/22/25.
+//
+
+// MARK: - Like Button (optimistic, non-blocking)
 struct PostActionsView: View {
     @State private var isLiked = false
-    @State private var isSaved = false
     @State private var likeCount: Int
-    @State private var saveCount: Int
 
     let post: Post
     let api = FirebaseFeedAPI()
@@ -136,53 +171,50 @@ struct PostActionsView: View {
     init(post: Post) {
         self.post = post
         _likeCount = State(initialValue: post.likeCount)
-        _saveCount = State(initialValue: post.saveCount)
     }
 
     var body: some View {
         HStack(spacing: 14) {
             Button {
-                Task {
-                    do {
-                        let newState = try await api.toggleLike(for: post.id)
-                        await MainActor.run {
-                            isLiked = newState
-                            likeCount += newState ? 1 : -1
-                        }
-                    } catch {
-                        print("❌ Like failed:", error)
-                    }
-                }
+                handleLikeTap()
             } label: {
-                Label("\(likeCount)", systemImage: isLiked ? "heart.fill" : "heart")
-                    .labelStyle(.iconOnly)
-                    .foregroundColor(isLiked ? .red : .secondary)
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                Task {
-                    do {
-                        let newState = try await api.toggleSave(for: post.id)
-                        await MainActor.run {
-                            isSaved = newState
-                            saveCount += newState ? 1 : -1
-                        }
-                    } catch {
-                        print("❌ Save failed:", error)
-                    }
+                HStack(spacing: 4) {
+                    Image(systemName: isLiked ? "heart.fill" : "heart")
+                    Text("\(likeCount)")
                 }
-            } label: {
-                Image(systemName: isSaved ? "bookmark.fill" : "bookmark")
-                    .foregroundColor(isSaved ? .blue : .secondary)
+                .font(.caption)
+                .foregroundColor(isLiked ? .red : .secondary)
             }
             .buttonStyle(.plain)
         }
-        .font(.caption)
         .task {
+            // initial load, can be a little slower – doesn't affect tap UX
             isLiked = await api.isPostLiked(post.id)
-            isSaved = await api.isPostSaved(post.id)
+        }
+    }
+
+    private func handleLikeTap() {
+        // 1) Optimistic update on main thread
+        let newState = !isLiked
+        let delta = newState ? 1 : -1
+
+        isLiked = newState
+        likeCount = max(0, likeCount + delta)
+
+        // 2) Fire-and-forget network write
+        Task {
+            do {
+                // We don't *need* the return value to update the UI,
+                // since we already did it optimistically.
+                _ = try await api.toggleLike(for: post.id)
+            } catch {
+                // 3) Revert if the backend call fails
+                await MainActor.run {
+                    isLiked.toggle()
+                    likeCount = max(0, likeCount - delta)
+                }
+                print("❌ Like failed:", error)
+            }
         }
     }
 }
-
