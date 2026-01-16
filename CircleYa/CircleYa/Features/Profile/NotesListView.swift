@@ -38,7 +38,7 @@ struct NotesListView: View {
         .task { await loadUserPosts() } // runs on appear
     }
 
-    // MARK: - Firestore fetch from /users/{uid}/posts
+    // MARK: - Firestore fetch from /users/{uid}/postsICreate
     private func loadUserPosts() async {
         guard let uid = Auth.auth().currentUser?.uid else {
             errorMessage = "No user logged in"
@@ -48,18 +48,26 @@ struct NotesListView: View {
         defer { isLoading = false }
 
         do {
-            let userDoc = try await db.collection("users").document(uid).getDocument()
-            guard let data = userDoc.data(),
-                  let noteIds = data["notePostIds"] as? [String],
-                  !noteIds.isEmpty else {
+            // 1. Fetch IDs from subcollection
+            let snapshot = try await db.collection("users")
+                .document(uid)
+                .collection("postsICreate")
+                .order(by: "createdAt", descending: true)
+                .getDocuments()
+            
+            let postIds = snapshot.documents.map { $0.documentID }
+            
+            if postIds.isEmpty {
                 await MainActor.run { self.posts = [] }
                 return
             }
 
+            // 2. Fetch actual posts
             var result: [Post] = []
             let api = FirebaseFeedAPI()
 
-            for pid in noteIds {
+            // TODO: Optimize with batch fetch or whereField("id", in: ...) if < 10
+            for pid in postIds {
                 let postDoc = try await db.collection("posts").document(pid).getDocument()
                 if let pdata = postDoc.data() {
                     do {

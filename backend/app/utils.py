@@ -7,5 +7,5 @@ def clean_text(s: str) -> str:
         return ""
     s = s.strip()
     s = HTML_TAG_RE.sub(" ", s)
-    s = re.sub(r"\s+", " ", s)
+    # s = re.sub(r"\s+", " ", s) # Don't collapse newlines
     return s[:4096]  # cap length

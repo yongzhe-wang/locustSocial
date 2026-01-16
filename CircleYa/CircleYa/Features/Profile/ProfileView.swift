@@ -18,111 +18,97 @@ struct ProfileView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 16) {
-                    // Avatar + Name + Bio
-                    VStack(spacing: 8) {
-                        if let profileImage {
-                            Image(uiImage: profileImage)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 100, height: 100)
-                                .clipShape(Circle())
-                                .shadow(radius: 4)
-                        } else {
-                            Image(systemName: "person.crop.circle.fill")
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 100, height: 100)
-                                .foregroundColor(.secondary)
+                VStack(spacing: 0) {
+                    // Header Background (Sunrise Gradient)
+                    ZStack(alignment: .bottom) {
+                        Theme.sunnyGradient
+                            .frame(height: 180)
+                            .edgesIgnoringSafeArea(.top)
+                        
+                        // Avatar
+                        ZStack {
+                            Circle()
+                                .fill(Color.white)
+                                .frame(width: 108, height: 108)
+                            
+                            if let profileImage {
+                                Image(uiImage: profileImage)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 100, height: 100)
+                                    .clipShape(Circle())
+                                    .overlay(Circle().stroke(Theme.primaryBrand, lineWidth: 2))
+                            } else {
+                                Image(systemName: "person.crop.circle.fill")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 100, height: 100)
+                                    .foregroundColor(Theme.secondaryBrand)
+                                    .overlay(Circle().stroke(Theme.primaryBrand, lineWidth: 2))
+                            }
                         }
-
-                        Text(username)
-                            .font(.title2)
-                            .bold()
-
-                        if !bio.isEmpty {
-                            Text(bio)
-                                .font(.body)
-                                .foregroundColor(.primary)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal)
-                        }
+                        .offset(y: 50)
                     }
-                    .padding(.top, 20)
+                    .padding(.bottom, 50)
+
+                    // Name + Bio
+                    VStack(spacing: 8) {
+                        Text(username)
+                            .font(.system(.title2, design: .rounded).weight(.bold))
+                            .foregroundStyle(Theme.textPrimary)
+
+                        Text(bio.isEmpty ? "Share knowledge, life, and questions." : bio)
+                            .font(.system(.body, design: .rounded))
+                            .foregroundColor(Theme.textSecondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                    }
+                    .padding(.bottom, 24)
 
                     // Centered followers / following
-                    HStack(spacing: 32) {
+                    HStack(spacing: 40) {
                         if let uid = Auth.auth().currentUser?.uid {
                             NavigationLink {
                                 FollowersListView(userId: uid)
                             } label: {
-                                VStack(spacing: 2) {
-                                    Text("\(followerCount)")
-                                        .font(.headline)
-                                    Text("Followers")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
+                                StatView(count: followerCount, label: "Followers")
                             }
 
                             NavigationLink {
                                 FollowingListView(userId: uid)
                             } label: {
-                                VStack(spacing: 2) {
-                                    Text("\(followingCount)")
-                                        .font(.headline)
-                                    Text("Following")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
+                                StatView(count: followingCount, label: "Following")
                             }
                         } else {
-                            VStack(spacing: 2) {
-                                Text("\(followerCount)")
-                                    .font(.headline)
-                                Text("Followers")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            VStack(spacing: 2) {
-                                Text("\(followingCount)")
-                                    .font(.headline)
-                                Text("Following")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                            StatView(count: followerCount, label: "Followers")
+                            StatView(count: followingCount, label: "Following")
                         }
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
+                    .padding(.bottom, 24)
 
-                    Divider()
-                        .padding(.horizontal)
-
-                    // Tabs
-                    HStack {
+                    // Custom Tabs
+                    HStack(spacing: 0) {
                         ForEach(ProfileTab.allCases, id: \.self) { tab in
                             Button {
-                                selectedTab = tab
+                                withAnimation { selectedTab = tab }
                             } label: {
                                 Text(tab.rawValue)
-                                    .font(.subheadline)
-                                    .bold()
-                                    .frame(maxWidth: .infinity)
+                                    .font(.system(.subheadline, design: .rounded).weight(.medium))
+                                    .foregroundColor(selectedTab == tab ? .white : Theme.textSecondary)
                                     .padding(.vertical, 8)
+                                    .padding(.horizontal, 16)
                                     .background(
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .fill(
-                                                selectedTab == tab
-                                                ? Color.blue.opacity(0.15)
-                                                : Color.clear
-                                            )
+                                        Capsule()
+                                            .fill(selectedTab == tab ? Theme.primaryBrand : Color.clear)
                                     )
                             }
-                            .foregroundColor(selectedTab == tab ? .blue : .primary)
                         }
                     }
+                    .padding(4)
+                    .background(Color.gray.opacity(0.1))
+                    .clipShape(Capsule())
+                    .padding(.bottom, 16)
                     .padding(.horizontal)
 
                     Divider()
@@ -266,6 +252,27 @@ struct ProfileView: View {
             NotificationCenter.default.post(name: .userDidSignOut, object: nil)
         } catch {
             errorMessage = "Sign-out failed: \(error.localizedDescription)"
+        }
+    }
+}
+
+struct StatView: View {
+    let count: Int
+    let label: String
+    
+    var body: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 4) {
+                Image(systemName: "sun.max.fill")
+                    .font(.caption2)
+                    .foregroundColor(Theme.primaryBrand)
+                Text("\(count)")
+                    .font(.system(.headline, design: .rounded).weight(.bold))
+                    .foregroundColor(Theme.primaryBrand)
+            }
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(Theme.textSecondary)
         }
     }
 }

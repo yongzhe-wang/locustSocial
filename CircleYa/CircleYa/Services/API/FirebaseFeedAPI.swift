@@ -176,22 +176,36 @@ struct FirebaseFeedAPI: FeedAPI {
     }
 
 
-    func uploadPost(title: String, text: String, image: UIImage?) async throws {
+    func uploadPost(title: String, text: String, images: [UIImage]) async throws {
         guard let user = Auth.auth().currentUser else { throw URLError(.userAuthenticationRequired) }
 
-        Log.info("🚀 uploadPost start uid=\(user.uid.prefix(6)) title=\(title.prefix(20)) text=\(text.prefix(20))")
+        Log.info("🚀 uploadPost start uid=\(user.uid.prefix(6)) title=\(title.prefix(20)) text=\(text.prefix(20)) images=\(images.count)")
 
         var mediaItems: [[String: Any]] = []
-        if let image = image {
-            let imageURL = try await uploadImage(image)
-            mediaItems = [[
-                "id": UUID().uuidString,
-                "type": "image",
-                "url": imageURL.absoluteString,
-                "width": 600,
-                "height": 600,
-                "thumbURL": imageURL.absoluteString
-            ]]
+        
+        // Upload images in parallel
+        if !images.isEmpty {
+            mediaItems = try await withThrowingTaskGroup(of: [String: Any].self) { group in
+                for image in images {
+                    group.addTask {
+                        let imageURL = try await self.uploadImage(image)
+                        return [
+                            "id": UUID().uuidString,
+                            "type": "image",
+                            "url": imageURL.absoluteString,
+                            "width": 600,
+                            "height": 600,
+                            "thumbURL": imageURL.absoluteString
+                        ]
+                    }
+                }
+                
+                var items: [[String: Any]] = []
+                for try await item in group {
+                    items.append(item)
+                }
+                return items
+            }
         }
 
         let postId = UUID().uuidString
@@ -319,49 +333,7 @@ struct FirebaseFeedAPI: FeedAPI {
 
 
 }
-// MARK: - Replies
-extension FirebaseFeedAPI {
-    @discardableResult
-    func addReply(
-        postId: String,
-        parentCommentId: String,
-        text: String
-    ) async throws -> Comment {
-        guard let me = Auth.auth().currentUser else {
-            throw URLError(.userAuthenticationRequired)
-        }
 
-        let id  = UUID().uuidString
-        let now = Date()
-
-        // write to Firestore
-        try await commentsCollection(postId).document(id).setData([
-            "id": id,
-            "postId": postId,
-            "parentId": parentCommentId,
-            "authorId": me.uid,
-            "text": text,
-            "createdAt": FieldValue.serverTimestamp(),
-            "likeCount": 0,
-            "dislikeCount": 0
-        ])
-
-        // fetch full author so UI has avatar, displayName, etc.
-        let author = try await fetchAuthor(for: me.uid)
-
-        // build Comment in memory (no Decoder involved)
-        return Comment(
-            id: id,
-            postId: postId,
-            author: author,
-            text: text,
-            createdAt: now,
-            likeCount: 0,
-            dislikeCount: 0,
-            parentId: parentCommentId    // include if your Comment has this field
-        )
-    }
-}
 
 
 
@@ -531,13 +503,13 @@ extension FirebaseFeedAPI {
         let doc = try await saveRef.getDocument()
         if doc.exists {
             try await saveRef.delete()
-            try await userRef.updateData(["savedPostIds": FieldValue.arrayRemove([postId])])
+            try await userRef.setData(["savedPostIds": FieldValue.arrayRemove([postId])], merge: true)
             try await postRef.updateData(["saveCount": FieldValue.increment(Int64(-1))])
             await setSaveFlag(false, for: postId)
             return false
         } else {
             try await saveRef.setData(["createdAt": FieldValue.serverTimestamp()])
-            try await userRef.updateData(["savedPostIds": FieldValue.arrayUnion([postId])])
+            try await userRef.setData(["savedPostIds": FieldValue.arrayUnion([postId])], merge: true)
             try await postRef.updateData(["saveCount": FieldValue.increment(Int64(1))])
             await setSaveFlag(true, for: postId)
             return true
@@ -590,20 +562,33 @@ extension FirebaseFeedAPI {
     }
 
     @discardableResult
-    func addComment(postId: String, text: String) async throws -> Comment {
+    func addComment(postId: String, text: String, isAI: Bool = false) async throws -> Comment {
         guard let me = Auth.auth().currentUser else { throw URLError(.userAuthenticationRequired) }
         let id = UUID().uuidString
-        try await commentsCollection(postId).document(id).setData([
+        
+        var data: [String: Any] = [
             "id": id,
             "postId": postId,
             "authorId": me.uid,
             "text": text,
             "createdAt": FieldValue.serverTimestamp(),
-            "likeCount": 0,            // NEW
-            "dislikeCount": 0          // NEW
-        ])
-        let author = try await fetchAuthor(for: me.uid)
-        return Comment(id: id, postId: postId, author: author, text: text, createdAt: Date(), likeCount: 0, dislikeCount: 0)
+            "likeCount": 0,
+            "dislikeCount": 0,
+            "isAI": isAI
+        ]
+        
+        // If it's AI, we might want to store a specific AI author ID or just flag it
+        // For now, we flag it and the UI handles the display (showing "AI Persona" instead of user)
+        
+        try await commentsCollection(postId).document(id).setData(data)
+        
+        var author = try await fetchAuthor(for: me.uid)
+        if isAI {
+            // Override author for local return
+            author = User(id: "ai-persona", idForUsers: "ai_persona", displayName: "AI Persona", email: "ai@example.com", avatarURL: nil, bio: "I am your AI companion.")
+        }
+        
+        return Comment(id: id, postId: postId, author: author, text: text, createdAt: Date(), likeCount: 0, dislikeCount: 0, parentId: nil, isAI: isAI)
     }
 
     /// Fetch newest, then sort by likes desc on the server (requires an index on createdAt/likeCount if you want compound queries later).
@@ -617,6 +602,13 @@ extension FirebaseFeedAPI {
         for d in snap.documents {
             let data = d.data()
             let authorId = data["authorId"] as? String ?? ""
+            
+            // FIX: Handle missing authorId to prevent crash
+            if authorId.isEmpty {
+                print("⚠️ Skipping comment \(d.documentID) with missing authorId")
+                continue
+            }
+
             let author = try await fetchAuthor(for: authorId)
             let ts = (data["createdAt"] as? Timestamp)?.dateValue() ?? Date()
 
@@ -629,7 +621,8 @@ extension FirebaseFeedAPI {
                     createdAt: ts,
                     likeCount: (data["likeCount"] as? Int) ?? 0,
                     dislikeCount: (data["dislikeCount"] as? Int) ?? 0,
-                    parentId: data["parentId"] as? String    // ← NEW
+                    parentId: data["parentId"] as? String,
+                    isAI: (data["isAI"] as? Bool) ?? false
                 )
             )
         }
@@ -740,6 +733,25 @@ extension FirebaseFeedAPI {
     func isCommentDisliked(postId: String, commentId: String) async -> Bool {
         guard let uid = Auth.auth().currentUser?.uid else { return false }
         return (try? await commentDoc(postId, commentId).collection("dislikes").document(uid).getDocument().exists) ?? false
+    }
+
+    @discardableResult
+    func addReply(postId: String, parentCommentId: String, text: String) async throws -> Comment {
+        guard let me = Auth.auth().currentUser else { throw URLError(.userAuthenticationRequired) }
+        let id = UUID().uuidString
+        try await commentsCollection(postId).document(id).setData([
+            "id": id,
+            "postId": postId,
+            "authorId": me.uid,
+            "text": text,
+            "createdAt": FieldValue.serverTimestamp(),
+            "likeCount": 0,
+            "dislikeCount": 0,
+            "parentId": parentCommentId,
+            "isAI": false
+        ])
+        let author = try await fetchAuthor(for: me.uid)
+        return Comment(id: id, postId: postId, author: author, text: text, createdAt: Date(), likeCount: 0, dislikeCount: 0, parentId: parentCommentId, isAI: false)
     }
 }
 

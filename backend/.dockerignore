@@ -1,0 +1,8 @@
+venv311/
+__pycache__/
+*.pyc
+.env
+.git
+.DS_Store
+.pytest_cache/
+tests/

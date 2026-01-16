@@ -2,7 +2,7 @@
 import SwiftUI
 
 final class AppRouter: ObservableObject {
-    enum Tab: Hashable { case discover, create, messages, profile }
+    enum Tab: Hashable { case discover, create, messages, aiClone, profile }
     enum Route: Hashable { case conversation(withUserID: String) }
 
     @Published var selectedTab: Tab = .discover

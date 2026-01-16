@@ -4,7 +4,19 @@ import Foundation
 // MARK: - Protocols
 protocol FeedAPI {
     func fetchFeed(cursor: String?) async throws -> FeedPage
-    func fetchNearby(cursor: String?) async throws -> FeedPage   // NEW
+    func fetchNearby(cursor: String?) async throws -> FeedPage
+    
+    // Interactions
+    func isPostLiked(_ postId: String) async -> Bool
+    func isPostSaved(_ postId: String) async -> Bool
+    func recordHistoryView(postId: String) async
+    func recordViewTime(postId: String, seconds: Double) async
+    func toggleLike(for postId: String) async throws -> Bool
+    func toggleSave(for postId: String) async throws -> Bool
+    
+    // Comments
+    func addComment(postId: String, text: String, isAI: Bool) async throws -> Comment
+    func fetchComments(postId: String, limit: Int) async throws -> [Comment]
 }
 
 
@@ -20,8 +32,9 @@ final class AppContainer {
 
 extension AppContainer {
     static var live: AppContainer {
-        // OLD: .init(feedAPI: FirebaseFeedAPI())
-        .init(feedAPI: PersonalizedFeedAPI(feed: FirebaseFeedAPI()))
+        // Use FirebaseFeedAPI directly to ensure immediate consistency for now.
+        // Was: .init(feedAPI: PersonalizedFeedAPI(feed: FirebaseFeedAPI()))
+        .init(feedAPI: FirebaseFeedAPI())
     }
 }
 

@@ -1,4 +1,5 @@
 # app/main.py
+from typing import List
 from fastapi import (
     FastAPI,
     UploadFile,
@@ -15,13 +16,21 @@ from .db import conn, ensure_pgvector_extension
 from .embeddings import cohere_embed
 from .utils import clean_text
 from .models import PostOut, ErrorOut
-from .models import UserEventIn
+from .models import UserEventIn, AdaptContentRequest, AdaptContentResponse
+import google.generativeai as genai
 from .features.posts import _compute_and_save_embedding
-from .features.interactions import _fetch_recent_event_vectors,  _ensure_user, _resolve_post_id,_event_weight, _compute_weighted_profile,_maybe_recompute_user_embedding,upsert_user_embedding
+from .features.interactions import _fetch_recent_event_vectors,  _ensure_user, _resolve_post_id,_event_weight, _compute_weighted_profile,_maybe_recompute_user_embedding,upsert_user_embedding, fetch_user_liked_posts_content
+from .features.recommendation import get_recommendations
+from .firebase_setup import get_firestore_db
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 # --- NEW: simple embedding job queue to prevent API bursts ---
 import threading, queue, time, base64
 
 app = FastAPI(title="Embeddings API")
+
+# --- Gemini Setup ---
+if settings.GEMINI_API_KEY:
+    genai.configure(api_key=settings.GEMINI_API_KEY)
 
 # --- CORS ---
 allow_origins = (
@@ -38,7 +47,7 @@ app.add_middleware(
 )
 
 # ---------------- Embedding worker ----------------
-_embed_jobs: "queue.Queue[tuple[int, str | None, bytes | None]]" = queue.Queue(maxsize=1000)
+_embed_jobs: "queue.Queue[tuple[int, str | None, list[bytes] | None]]" = queue.Queue(maxsize=1000)
 
 def _embed_worker(qps: float = 2.0):
     """
@@ -48,16 +57,19 @@ def _embed_worker(qps: float = 2.0):
     last_call = 0.0
     while True:
         try:
-            post_id, text, img_bytes = _embed_jobs.get()
+            post_id, text, img_bytes_list = _embed_jobs.get()
             now = time.time()
             if now - last_call < min_interval:
                 time.sleep(min_interval - (now - last_call))
             try:
                 print(f"[worker] embedding job start post_id={post_id}")
-                _compute_and_save_embedding(post_id, None, text or "", img_bytes)
+                _compute_and_save_embedding(post_id, None, text or "", img_bytes_list)
                 print(f"[worker] embedding job done post_id={post_id}")
             except Exception as e:
                 print(f"[embed-worker] job failed post_id={post_id}: {e}")
+            
+            # Force 1s sleep after each job as requested
+            time.sleep(1.0)
             last_call = time.time()
         except Exception as e:
             print(f"[embed-worker] loop error: {e}")
@@ -75,15 +87,26 @@ def _ensure_worker():
             print("[startup] embed worker started")
 
 # --- Startup ---
+scheduler = AsyncIOScheduler()
+
 @app.on_event("startup")
-def _startup():
+async def _startup():
     ensure_pgvector_extension()
     _ensure_worker()
-    print("[startup] pgvector ensured & worker online")
+    
+    scheduler.start()
+    
+    print("[startup] pgvector ensured, worker online")
+
+@app.on_event("shutdown")
+async def _shutdown():
+    scheduler.shutdown()
 
 @app.get("/healthz")
 def healthz():
     return {"ok": True}
+
+
 
 # --- Helper: verify shared secret from Functions (optional) ---
 def _verify_webhook_secret(req: Request):
@@ -104,35 +127,36 @@ async def create_post(
     firebase_id: str | None = Form(None),
     title: str = Form(""),
     body: str | None = Form(""),
-    image: UploadFile | None = File(None),
+    images: list[UploadFile] = File(None),
     # NEW: allow fallback base64 sent by Functions if multipart image can’t attach
-    image_b64: str | None = Form(None),
+    images_b64: list[str] = Form(None),
 ):
     _verify_webhook_secret(request)
     print(f"[posts] incoming firebase_id={firebase_id} title_len={len(title or '')} body_len={len(body or '')}")
 
     text = clean_text(body or "")
-    img_bytes: bytes | None = None
+    img_bytes_list: list[bytes] = []
 
-    if image:
-        data = await image.read()
-        print(f"[posts] image multipart bytes={len(data)}")
-        if len(data) > settings.MAX_IMAGE_BYTES:
-            raise HTTPException(status_code=400, detail="image too large")
-        img_bytes = data
-    elif image_b64:
-        try:
-            b64 = image_b64
-            if b64.startswith("data:"):
-                b64 = b64.split(",", 1)[1]
-                print("[posts] data URI detected for image_b64")
-            data = base64.b64decode(b64)
-            print(f"[posts] image_b64 bytes={len(data)}")
+    if images:
+        for image in images:
+            data = await image.read()
+            print(f"[posts] image multipart bytes={len(data)}")
             if len(data) > settings.MAX_IMAGE_BYTES:
                 raise HTTPException(status_code=400, detail="image too large")
-            img_bytes = data
-        except Exception:
-            raise HTTPException(status_code=400, detail="bad image_b64")
+            img_bytes_list.append(data)
+    elif images_b64:
+        for b64 in images_b64:
+            try:
+                if b64.startswith("data:"):
+                    b64 = b64.split(",", 1)[1]
+                    print("[posts] data URI detected for image_b64")
+                data = base64.b64decode(b64)
+                print(f"[posts] image_b64 bytes={len(data)}")
+                if len(data) > settings.MAX_IMAGE_BYTES:
+                    raise HTTPException(status_code=400, detail="image too large")
+                img_bytes_list.append(data)
+            except Exception:
+                raise HTTPException(status_code=400, detail="bad image_b64")
 
     # insert / upsert
     with conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -159,11 +183,11 @@ async def create_post(
 
     # enqueue embedding job instead of firing many parallel background tasks
     try:
-        _embed_jobs.put_nowait((row["id"], text, img_bytes))
+        _embed_jobs.put_nowait((row["id"], text, img_bytes_list))
         print(f"[posts] queued embedding job post_id={row['id']}")
     except queue.Full:
         print("[posts] embed queue full, scheduling inline background task")
-        bg.add_task(_compute_and_save_embedding, row["id"], firebase_id, text, img_bytes)
+        bg.add_task(_compute_and_save_embedding, row["id"], firebase_id, text, img_bytes_list)
 
     return PostOut(id=row["id"], title=row["title"], body=row["body"])
 
@@ -216,9 +240,6 @@ from typing import List, Any
 import json
 from fastapi import HTTPException
 
-POPULARITY_ALPHA = 0.3  # how strongly likes affect ranking
-
-
 @app.get("/api/rank")
 def rank(uid: str, limit: int = 15, cursor: int = 0):
     """
@@ -227,154 +248,90 @@ def rank(uid: str, limit: int = 15, cursor: int = 0):
       - freshness (newer posts slightly favored)
       - global popularity via like counts
     """
-    limit = min(max(limit, 1), 200)
-    offset = int(cursor)
-    print(f"[rank] computing recommendations for uid={uid} limit={limit} offset={offset}")
+    return get_recommendations(uid, limit, cursor)
 
-    # 1) Load user embedding
-    with conn() as c, c.cursor() as cur:
-        cur.execute("SELECT embedding FROM user_embeddings WHERE uid = %s", (uid,))
-        row = cur.fetchone()
-
-    def coerce_embedding(x: Any) -> List[float] | None:
-        if x is None:
-            return None
-        if isinstance(x, (list, tuple)):
-            return [float(v) for v in x]
-        if isinstance(x, str):
-            try:
-                parsed = json.loads(x)
-                if isinstance(parsed, list):
-                    return [float(v) for v in parsed]
-            except Exception:
-                pass
-        return None
-
-    uvec = coerce_embedding(row[0]) if row else None
-
-    # Utility to fetch recent *popular* posts, used for cold-start + top-up
-    def latest_posts_fbids(k: int, offset: int = 0) -> list[str]:
-        if k <= 0:
-            return []
-        with conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
-                WITH post_likes AS (
-                  SELECT post_id, COUNT(*) AS likes
-                  FROM user_events
-                  WHERE etype = 'like'
-                  GROUP BY post_id
-                )
-                SELECT p.firebase_id
-                FROM posts p
-                LEFT JOIN post_likes pl ON pl.post_id = p.id
-                WHERE p.embedding IS NOT NULL
-                  AND p.firebase_id IS NOT NULL
-                ORDER BY
-                  COALESCE(pl.likes, 0) DESC,
-                  p.created_at DESC
-                LIMIT %s OFFSET %s
-                """,
-                (k, offset),
-            )
-            return [r["firebase_id"] for r in cur.fetchall() if r["firebase_id"]]
-
-    # 2) If user embedding missing → popularity + recency fallback
-    if not uvec:
-        print(f"[rank] no embedding for {uid}, returning popularity-weighted fallback")
-        latest = latest_posts_fbids(limit, offset)
-        random.shuffle(latest)
-        next_cursor = offset + limit if len(latest) == limit else None
-        return {"post_ids": latest, "next_cursor": next_cursor}
-
-    # 3) Ranked query using pgvector + likes
-    print(f"[rank] user embedding found, running similarity + likes query")
-    with conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+@app.post("/api/adapt-content", response_model=AdaptContentResponse)
+async def adapt_content(req: AdaptContentRequest):
+    if not settings.GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="Gemini API key not configured")
+        
+    # Use gemini-2.0-flash for better availability and speed
+    model = genai.GenerativeModel("gemini-2.0-flash")
+    
+    style_context = ""
+    if req.uid:
         try:
-            cur.execute("SET LOCAL ivfflat.probes = %s", (10,))
-        except Exception:
+            liked_posts = fetch_user_liked_posts_content(req.uid, limit=3)
+            if liked_posts:
+                # Truncate to avoid huge prompts, just take first 200 chars of each
+                examples = "\n".join([f"- {post[:200]}..." for post in liked_posts])
+                style_context = f"""
+    User's preferred content style (based on liked posts):
+    {examples}
+    
+    Please adapt the text to match this style preference where appropriate, while maintaining the requested '{req.style}' tone.
+    """
+        except Exception as e:
+            print(f"[adapt] failed to fetch user history: {e}")
+            # continue without personalization
+
+    # Structured prompt for Fact Locking and Source Tracing
+    title_instruction = ""
+    input_title = ""
+    if req.title:
+        title_instruction = '- "adapted_title": The rewritten title.'
+        input_title = f'Input Title: "{req.title}"'
+
+    prompt = f"""
+    You are a content adaptation assistant. 
+    Task: Rewrite the following social media post to be more {req.style}.
+    {style_context}
+    
+    CRITICAL RULES:
+    1. FACT LOCKING: You must identify and PRESERVE all factual information (names, locations, prices, numbers, specific objects) exactly as they are. Do not change them.
+    2. OPINION MODIFICATION: You may rewrite opinions, tone, and style to match the requested style ({req.style}).
+    3. FORMATTING: You MUST preserve the original paragraph structure and line breaks. Use '\\n' for newlines in the JSON string. Do not output the text as a single block if the original had paragraphs.
+    4. OUTPUT FORMAT: Return ONLY a valid JSON object with the following keys:
+       - "adapted_text": The rewritten text.
+       {title_instruction}
+       - "facts": A list of strings containing the factual elements you preserved.
+       - "modifications": A list of strings describing specific changes you made (e.g., "Changed 'good' to 'stunning'").
+    
+    {input_title}
+    Input Text:
+    \"\"\"
+    {req.text}
+    \"\"\"
+    """
+    
+    try:
+        response = await model.generate_content_async(prompt)
+        
+        # Clean up response to ensure it's valid JSON
+        text_response = response.text.strip()
+        if text_response.startswith("```json"):
+            text_response = text_response[7:]
+        if text_response.endswith("```"):
+            text_response = text_response[:-3]
+            
+        import json
+        data = json.loads(text_response)
+        
+        return AdaptContentResponse(
+            adapted_text=data.get("adapted_text", ""),
+            adapted_title=data.get("adapted_title"),
+            facts=data.get("facts", []),
+            modifications=data.get("modifications", [])
+        )
+    except Exception as e:
+        print(f"Gemini error: {e}")
+        # Fallback: Try to list models to see what's available for debugging
+        try:
+            for m in genai.list_models():
+                if 'generateContent' in m.supported_generation_methods:
+                    print(f"Available model: {m.name}")
+        except:
             pass
-
-        cur.execute(
-            """
-            WITH post_likes AS (
-              SELECT post_id, COUNT(*) AS likes
-              FROM user_events
-              WHERE etype = 'like'
-              GROUP BY post_id
-            )
-            SELECT p.firebase_id,
-                   COALESCE(pl.likes, 0) AS likes
-            FROM posts p
-            LEFT JOIN post_likes pl ON pl.post_id = p.id
-            WHERE p.embedding IS NOT NULL
-              AND p.firebase_id IS NOT NULL
-            ORDER BY
-              -- similarity (lower is better)
-              (p.embedding <=> (%s)::float4[]::vector)
-              -- freshness penalty (caps at 0.15)
-              + LEAST(
-                  0.15,
-                  GREATEST(
-                    0.0,
-                    (EXTRACT(EPOCH FROM (now() - p.created_at))/3600.0) * 0.002
-                  )
-                )
-              -- popularity reward: more likes → lower score
-              - %s * LN(1 + COALESCE(pl.likes, 0))
-            LIMIT %s OFFSET %s
-            """,
-            (uvec, POPULARITY_ALPHA, limit, offset),
-        )
-        ranked_rows = cur.fetchall()
-
-    ranked = [r["firebase_id"] for r in ranked_rows if r["firebase_id"]]
-
-    # 4) Diversity: random but biased toward popular posts
-    RANDOM_COUNT = min(5, limit)
-    random_fbids: list[str] = []
-    with conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            """
-            WITH post_likes AS (
-              SELECT post_id, COUNT(*) AS likes
-              FROM user_events
-              WHERE etype = 'like'
-              GROUP BY post_id
-            )
-            SELECT p.firebase_id
-            FROM posts p
-            LEFT JOIN post_likes pl ON pl.post_id = p.id
-            WHERE p.embedding IS NOT NULL
-              AND p.firebase_id IS NOT NULL
-            ORDER BY
-              COALESCE(pl.likes, 0) DESC,
-              RANDOM()
-            LIMIT %s
-            """,
-            (limit * 3,),
-        )
-        pool = [r["firebase_id"] for r in cur.fetchall() if r["firebase_id"]]
-        seen = set(ranked)
-        for fbid in pool:
-            if fbid not in seen:
-                random_fbids.append(fbid)
-                seen.add(fbid)
-                if len(random_fbids) >= RANDOM_COUNT:
-                    break
-
-    merged = (random_fbids + [fbid for fbid in ranked if fbid not in random_fbids])[:limit]
-
-    # 5) Top up if short
-    if len(merged) < limit:
-        topup = latest_posts_fbids(limit * 2, offset)
-        seen = set(merged)
-        for fbid in topup:
-            if fbid not in seen:
-                merged.append(fbid)
-                if len(merged) >= limit:
-                    break
-
-    next_cursor = offset + limit if len(merged) == limit else None
-    print(f"[rank] returning {len(merged)} posts next_cursor={next_cursor}")
-    return {"post_ids": merged, "next_cursor": next_cursor}
+            
+        # Fallback if JSON parsing fails or API error
+        raise HTTPException(status_code=500, detail=f"AI adaptation failed: {str(e)}")

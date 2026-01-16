@@ -19,9 +19,9 @@ struct SearchView: View {
             // Search bar
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.primaryBrand)
 
-                TextField("Search users or posts", text: $query)
+                TextField("Search pplLikeME", text: $query)
                     .textInputAutocapitalization(.never)
                     .submitLabel(.search)
                     .onSubmit { Task { await runSearch() } }
@@ -29,6 +29,7 @@ struct SearchView: View {
                 if isLoading {
                     ProgressView()
                         .scaleEffect(0.8)
+                        .tint(Theme.primaryBrand)
                 } else if !query.isEmpty {
                     Button {
                         query = ""
@@ -36,7 +37,7 @@ struct SearchView: View {
                         userResults = []
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.primaryBrand)
                     }
                     .buttonStyle(.plain)
                 }
@@ -62,13 +63,25 @@ struct SearchView: View {
             ScrollView {
                 LazyVStack(spacing: 12) {
                     if query.isEmpty {
-                        Text("Start typing to search posts or people.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 24)
+                        VStack(spacing: 16) {
+                            Image(systemName: "sun.max.fill")
+                                .font(.system(size: 48))
+                                .foregroundStyle(Theme.primaryBrand)
+                                .opacity(0.5)
+                            
+                            Text("Find your people on pplLikeME")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                            
+                            Text("Search for posts, people, and moments.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 60)
                     } else if isLoading {
                         ProgressView()
                             .padding(.top, 24)
+                            .tint(Theme.primaryBrand)
                     } else {
                         if segment == .posts {
                             if postResults.isEmpty {
@@ -108,8 +121,8 @@ struct SearchView: View {
             }
         }
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
-        .navigationTitle("Search")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("pplLikeME")
+        .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .keyboard) {
                 HStack {
@@ -117,6 +130,7 @@ struct SearchView: View {
                     Button("Search") {
                         Task { await runSearch() }
                     }
+                    .tint(Theme.primaryBrand)
                 }
             }
         }

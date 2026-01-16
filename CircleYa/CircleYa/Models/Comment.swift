@@ -10,4 +10,5 @@ struct Comment: Identifiable, Codable, Hashable {
     var likeCount: Int = 0          // NEW
     var dislikeCount: Int = 0       // kept for logic; not shown
     var parentId: String? 
+    var isAI: Bool = false
 }

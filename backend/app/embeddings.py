@@ -19,7 +19,7 @@ def _to_data_uri(img_bytes: bytes) -> str:
 
 def cohere_embed(
     text: str,
-    image_bytes: Optional[bytes],
+    image_bytes_list: Optional[List[bytes]],
     input_type: Literal["search_document","search_query","classification","clustering"]="search_document",
     output_dimension: Optional[int] = None,
 ) -> List[float]:
@@ -32,8 +32,9 @@ def cohere_embed(
     content = []
     if text:
         content.append({"type":"text","text":text})
-    if image_bytes:
-        content.append({"type":"image","image": _to_data_uri(image_bytes)})
+    if image_bytes_list:
+        for img_bytes in image_bytes_list:
+            content.append({"type":"image","image": _to_data_uri(img_bytes)})
 
     if not content:
         raise ValueError("empty input for embedding")
@@ -57,6 +58,11 @@ def cohere_embed(
         try:
             with httpx.Client(timeout=settings.COHERE_TIMEOUT) as client:
                 r = client.post(f"{COHERE_BASE}/embed", json=payload, headers=headers)
+            
+            if r.status_code == 403:
+                # User requested to hide this error (likely China IP ban). Return zero vector silently.
+                return [0.0] * (output_dimension or settings.COHERE_EMBED_DIM)
+
             if r.status_code == 429:
                 # honor Retry-After if present
                 ra = r.headers.get("Retry-After")

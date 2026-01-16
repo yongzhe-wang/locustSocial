@@ -16,11 +16,11 @@ struct LoginView: View {
                 Spacer()
                 
                 // App logo or title
-                Image(systemName: "leaf.circle.fill")
+                Image(systemName: "person.3.fill")
                     .resizable()
-                    .frame(width: 80, height: 80)
-                    .foregroundColor(.green)
-                Text("CircleYa")
+                    .frame(width: 80, height: 40)
+                    .foregroundStyle(Theme.gradient)
+                Text("pplLikeME")
                     .font(.largeTitle).bold()
                 
                 // Input fields
@@ -55,14 +55,14 @@ struct LoginView: View {
                         ProgressView()
                             .frame(maxWidth: .infinity)
                             .padding()
-                            .background(Color.blue)
+                            .background(Theme.gradient)
                             .foregroundColor(.white)
                             .cornerRadius(12)
                     } else {
                         Text("Log In")
                             .frame(maxWidth: .infinity)
                             .padding()
-                            .background(Color.blue)
+                            .background(Theme.gradient)
                             .foregroundColor(.white)
                             .cornerRadius(12)
                     }

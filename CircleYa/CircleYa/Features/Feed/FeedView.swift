@@ -22,54 +22,59 @@ struct FeedView: View {
                         .onAppear { scrollProxy = proxy }
 
                     if let updated = vm.lastUpdated {
-                        Text("Updated \(updated.formatted(date: .omitted, time: .shortened))")
+                        Text("Today · \(updated.formatted(date: .omitted, time: .shortened))")
                             .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.textSecondary)
                             .padding(.top, 4)
                     }
 
                     ScrollView {
-                        MasonryLayout(columns: 2, spacing: 1) {
+                        MasonryLayout(columns: 2, spacing: 6) {
                             ForEach(vm.items, id: \.id) { post in
                                 NavigationLink(value: post) {
-                                    FeedCard(post: post)
+                                    MasonryFeedCard(post: post)
                                 }
                                 .buttonStyle(.plain)
                             }
-
-                            // Bottom refresher
-                            // Bottom refresher
-                            if vm.hasMore && !vm.isLoading {
-                                GeometryReader { geo in
-                                    Color.clear
-                                        .onChange(of: geo.frame(in: .global).minY) { y in
-                                            let screenHeight = UIScreen.main.bounds.height
-                                            let triggerThreshold = screenHeight * 1.2
-                                            if y < triggerThreshold {
-                                                Task { await vm.loadMore() }
-                                            }
-                                        }
-                                        .frame(height: 1)
-                                }
-                                .frame(height: 1)
-                            } else if vm.isLoadingMore {
-                                ProgressView().padding(.vertical, 12)
-                            } else if !vm.items.isEmpty {
-                                
-                                Text("You’re all caught up")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.vertical, 12)
-                            }
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 6)
+
+                        // Bottom refresher
+                        if vm.hasMore && !vm.isLoading {
+                            GeometryReader { geo in
+                                Color.clear
+                                    .onChange(of: geo.frame(in: .global).minY) { y in
+                                        let screenHeight = UIScreen.main.bounds.height
+                                        let triggerThreshold = screenHeight * 1.2
+                                        if y < triggerThreshold {
+                                            Task { await vm.loadMore() }
+                                        }
+                                    }
+                                    .frame(height: 1)
+                            }
+                            .frame(height: 1)
+                        } else if vm.isLoadingMore {
+                            ProgressView().padding(.vertical, 12)
+                        } else if !vm.items.isEmpty {
+                            
+                            Text("You’re all caught up")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .padding(.vertical, 12)
+                        }
                     }
                     .refreshable { await vm.refresh() }
+                    .navigationDestination(for: Post.self) { post in
+                        PostDetailView(post: post)
+                    }
+                    .navigationDestination(for: User.self) { user in
+                        OtherUserProfileView(userId: user.id)
+                    }
                 }
             }
-            .navigationTitle("Discover")
-            .navigationBarTitleDisplayMode(.large)
+            // .navigationTitle("hi, Day")
+            .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 guard !didKickoff else { return }
                 didKickoff = true
@@ -77,16 +82,25 @@ struct FeedView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink(destination: SearchView(api: AppContainer.live.feedAPI)) {
-                        Image(systemName: "magnifyingglass")
+                    HStack(spacing: 16) {
+                        NavigationLink(destination: MessagesView()) {
+                            Image(systemName: "bubble.left.and.bubble.right")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(Theme.primaryBrand)
+                        }
+                        
+                        NavigationLink(destination: SearchView(api: AppContainer.live.feedAPI)) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(Theme.primaryBrand)
+                                .padding(10)
+                                .background(
+                                    Circle()
+                                        .stroke(Theme.primaryBrand.opacity(0.3), lineWidth: 1)
+                                )
+                        }
                     }
                 }
-            }
-            .navigationDestination(for: Post.self) { post in
-                PostDetailView(post: post)
-            }
-            .navigationDestination(for: User.self) { user in
-                OtherUserProfileView(userId: user.id)
             }
             .overlay { if vm.isLoading { ProgressView() } }
         }

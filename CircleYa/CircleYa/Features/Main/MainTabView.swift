@@ -10,46 +10,68 @@ struct MainTabView: View {
 
     init() {
         let appearance = UITabBarAppearance()
-        appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = UIColor.systemBackground
-        UITabBar.appearance().tintColor = .black
-        UITabBar.appearance().unselectedItemTintColor = .lightGray
+        appearance.configureWithTransparentBackground()
+        appearance.backgroundColor = UIColor(Theme.backgroundMain.opacity(0.9))
+        appearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterialLight)
+        
+        // Apply pplLikeME theme
+        UITabBar.appearance().tintColor = UIColor(Theme.primaryBrand)
+        UITabBar.appearance().unselectedItemTintColor = UIColor(Theme.textHint)
         UITabBar.appearance().standardAppearance = appearance
         UITabBar.appearance().scrollEdgeAppearance = appearance
     }
 
     var body: some View {
-        TabView(selection: $selection) {
-            FeedView()
-                .tabItem { Label("Discover", systemImage: "house.fill") }
-                .tag(Tab.discover)
+        VStack(spacing: 0) {
+            
+            ZStack(alignment: .bottom) {
+                TabView(selection: $selection) {
+                    FeedView()
+                        .tag(Tab.discover)
+                        .toolbar(.hidden, for: .tabBar)
 
-//            NearbyView()
-//                .tabItem { Label("Nearby", systemImage: "location.circle") }
-//                .tag(Tab.nearby)
+                    CreatePostView()
+                        .tag(Tab.create)
+                        .toolbar(.hidden, for: .tabBar)
 
-            CreatePostView()
-                .tabItem { Label("Create", systemImage: "plus.circle") }
-                .tag(Tab.create)
+                    ProfileView()
+                        .tag(Tab.profile)
+                        .toolbar(.hidden, for: .tabBar)
+                }
 
-            MessagesView()
-                .tabItem { Label("Messages", systemImage: "bubble.left.and.bubble.right.fill") }
-                .tag(Tab.messages)
-
-            ProfileView()
-                .tabItem { Label("Profile", systemImage: "person.crop.circle") }
-                .tag(Tab.profile)
-        }
-        .onChange(of: selection) { _, newValue in
-            // Whenever user switches TO Discover, ask it to scroll+refresh
-            if newValue == .discover {
-                NotificationCenter.default.post(name: .refreshDiscover, object: nil)
+                // Custom Floating Tab Bar
+                HStack(spacing: 0) {
+                    tabButton(title: "Home", icon: "house", selectedIcon: "house.fill", tab: .discover)
+                    tabButton(title: "Share", icon: "plus.circle", selectedIcon: "plus.circle.fill", tab: .create)
+                    tabButton(title: "Me", icon: "person.crop.circle", selectedIcon: "person.crop.circle.fill", tab: .profile)
+                }
+                .padding(.horizontal, 4)
+                .padding(.vertical, 10)
+                .background(.ultraThinMaterial)
+                .clipShape(Capsule())
+                .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
+                .padding(.horizontal, 40)
+                .padding(.bottom, 20)
             }
+            .ignoresSafeArea(.keyboard)
         }
-        .background(TabBarReselectHandler())   // ⬅️ install the delegate
-        .tint(.blue)
-        .toolbarBackground(.visible, for: .tabBar)
-        .toolbarBackground(Color(.systemBackground), for: .tabBar)
-        .toolbarColorScheme(.light, for: .tabBar)
+    }
+
+    private func tabButton(title: String, icon: String, selectedIcon: String, tab: Tab) -> some View {
+        Button {
+            if selection == tab && tab == .discover {
+                 NotificationCenter.default.post(name: .refreshDiscover, object: nil)
+            }
+            selection = tab
+        } label: {
+            VStack(spacing: 3) {
+                Image(systemName: selection == tab ? selectedIcon : icon)
+                    .font(.system(size: 20))
+                Text(title)
+                    .font(.caption2)
+            }
+            .frame(maxWidth: .infinity)
+            .foregroundStyle(selection == tab ? Theme.primaryBrand : .secondary)
+        }
     }
 }

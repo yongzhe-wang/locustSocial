@@ -541,3 +541,46 @@ exports.rankProxy = onRequest({ region: REGION }, async (req, res) => {
     res.status(502).json({ error: "Upstream error", detail: String(err) });
   }
 });
+exports.aiCloneProxy = onRequest({ region: REGION }, async (req, res) => {
+  if (applyCors(req, res, "GET, POST, OPTIONS")) return;
+
+  try {
+    const uid = req.query.uid || req.body.uid;
+    const draftId = req.query.draftId || req.body.draftId;
+    const action = req.query.action || req.body.action; // 'list', 'approve', 'reject'
+
+    if (!uid) {
+        res.status(400).json({ error: "Missing uid" });
+        return;
+    }
+
+    let target = "";
+    let method = "GET";
+
+    if (action === "approve") {
+        if (!draftId) { res.status(400).json({ error: "Missing draftId" }); return; }
+        target = `${BACKEND_BASE}/ai-clone/drafts/${uid}/${draftId}/approve`;
+        method = "POST";
+    } else if (action === "reject") {
+        if (!draftId) { res.status(400).json({ error: "Missing draftId" }); return; }
+        target = `${BACKEND_BASE}/ai-clone/drafts/${uid}/${draftId}/reject`;
+        method = "POST";
+    } else {
+        // Default to list drafts
+        target = `${BACKEND_BASE}/ai-clone/drafts/${uid}`;
+        method = "GET";
+    }
+
+    const upstream = await fetch(target, { method });
+    const bodyText = await upstream.text();
+
+    res
+      .status(upstream.status)
+      .set("content-type", upstream.headers.get("content-type") || "application/json")
+      .send(bodyText);
+
+  } catch (err) {
+    console.error("[aiCloneProxy] error:", err);
+    res.status(502).json({ error: "Upstream error", detail: String(err) });
+  }
+});

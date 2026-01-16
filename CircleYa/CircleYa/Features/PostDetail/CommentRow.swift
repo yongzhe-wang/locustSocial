@@ -48,9 +48,21 @@ struct CommentRow: View {
                         NavigationLink(
                             destination: OtherUserProfileView(userId: comment.author.id)
                         ) {
-                            Text(comment.author.displayName)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.primary)
+                            HStack(spacing: 4) {
+                                Text(comment.author.displayName)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                
+                                if comment.isAI {
+                                    Text("AI")
+                                        .font(.caption2.bold())
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 2)
+                                        .background(Color.purple)
+                                        .clipShape(Capsule())
+                                }
+                            }
                         }
                         .buttonStyle(.plain)
 
@@ -153,9 +165,22 @@ struct CommentRow: View {
                                     NavigationLink(
                                         destination: OtherUserProfileView(userId: reply.author.id)
                                     ) {
-                                        Text(reply.author.displayName)
-                                            .font(.caption.weight(.semibold))
-                                            .foregroundStyle(.primary)
+                                        HStack(spacing: 4) {
+                                            Text(reply.author.displayName)
+                                                .font(.caption.weight(.semibold))
+                                                .foregroundStyle(.primary)
+                                            
+                                            if reply.isAI {
+                                                Text("AI")
+                                                    .font(.caption2.bold())
+                                                    .foregroundStyle(.white)
+                                                    .padding(.horizontal, 4)
+                                                    .padding(.vertical, 2)
+                                                    .background(Color.purple)
+                                                    .clipShape(Capsule())
+                                                    .scaleEffect(0.8)
+                                            }
+                                        }
                                     }
                                     .buttonStyle(.plain)
 
@@ -235,6 +260,7 @@ struct CommentRow: View {
                 postId: postId,
                 parentCommentId: comment.id,
                 text: payload
+                
             )
             await MainActor.run {
                 onReplyAdded?()

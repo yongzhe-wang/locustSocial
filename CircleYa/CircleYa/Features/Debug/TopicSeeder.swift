@@ -11,12 +11,24 @@ enum TopicSeeder {
     ///   - usePicsum: true = fetch from picsum, false = generate locally
     ///   - chunkSize: parallelism per wave
     ///   - staggerMs: tiny delay between task starts (helps avoid 429s)
+    // MARK: - Seed Users
+    static let seedUsers: [(uid: String, name: String, handle: String, bio: String, avatarURL: String)] = [
+        ("seed_user_tennis", "Tennis Pro", "tennis_lover", "I love tennis!", "https://i.pravatar.cc/300?u=tennis"),
+        ("seed_user_dancing", "Dance Star", "dancer_123", "Born to dance.", "https://i.pravatar.cc/300?u=dancing"),
+        ("seed_user_china", "Traveler", "china_explorer", "Exploring the world.", "https://i.pravatar.cc/300?u=china"),
+        ("seed_user_school", "Student Life", "study_buddy", "Learning every day.", "https://i.pravatar.cc/300?u=school"),
+        ("seed_user_food", "Foodie", "yummy_eats", "Food is life.", "https://i.pravatar.cc/300?u=food")
+    ]
+
     static func seed100ViaAPI(
         usePicsum: Bool = true,
         chunkSize: Int = 10,
         staggerMs: UInt64 = 80
     ) async throws {
         try await ensureAuth()
+        
+        // 1. Create Seed Users
+        try await createSeedUsers()
 
         let api = FirebaseFeedAPI()
         let topics: [(tag: String, titlePrefix: String, samples: [String])] = [
@@ -86,7 +98,12 @@ enum TopicSeeder {
                                 : generatePlaceholderImage(width: 700, height: 700, title: item.title))
 
                             let body = "\(item.text)\n#\(item.tag)"
-                            try await api.uploadPost(title: item.title, text: body, image: image)
+                            
+                            // Find the correct user for this tag
+                            let user = seedUsers.first { $0.uid.contains(item.tag) } ?? seedUsers[0]
+                            
+                            // Use custom upload function
+                            try await uploadSeedPost(api: api, title: item.title, text: body, image: image, author: user)
                             await counter.incOK()
 
                             print("✅ [\(Self.shortStamp())] ok   #\(item.idx) “\(item.title)”")
@@ -107,6 +124,66 @@ enum TopicSeeder {
         let dt = String(format: "%.2fs", Date().timeIntervalSince(t0))
         let (ok, fail) = await counter.snapshot()
         print("🏁 seed100ViaAPI finished | ok=\(ok) fail=\(fail) elapsed=\(dt)")
+    }
+    
+    static func createSeedUsers() async throws {
+        let db = Firestore.firestore()
+        for u in seedUsers {
+             let userData: [String: Any] = [
+                "id": u.uid,
+                "idForUsers": u.handle,
+                "displayName": u.name,
+                "email": "\(u.handle)@example.com",
+                "bio": u.bio,
+                "avatarURL": u.avatarURL,
+                "createdAt": FieldValue.serverTimestamp(),
+                "updatedAt": FieldValue.serverTimestamp()
+            ]
+            try await db.collection("users").document(u.uid).setData(userData, merge: true)
+            print("👤 Created/Updated seed user: \(u.name) (\(u.uid))")
+        }
+    }
+    
+    static func uploadSeedPost(api: FirebaseFeedAPI, title: String, text: String, image: UIImage?, author: (uid: String, name: String, handle: String, bio: String, avatarURL: String)) async throws {
+        // Replicating uploadPost logic but with explicit authorId
+        
+        var mediaItems: [[String: Any]] = []
+        if let image = image {
+            let imageURL = try await api.uploadImage(image)
+            mediaItems = [[
+                "id": UUID().uuidString,
+                "type": "image",
+                "url": imageURL.absoluteString,
+                "width": 600,
+                "height": 600,
+                "thumbURL": imageURL.absoluteString
+            ]]
+        }
+
+        let postId = UUID().uuidString
+        let postData: [String: Any] = [
+            "id": postId,
+            "authorId": author.uid,
+            "authorName": author.name,
+            "authorHandle": author.handle,
+            "authorAvatar": author.avatarURL,
+            "title": title,
+            "text": text,
+            "media": mediaItems,
+            "tags": [],
+            "createdAt": FieldValue.serverTimestamp(),
+            "likeCount": 0,
+            "saveCount": 0,
+            "commentCount": 0
+        ]
+
+        let db = Firestore.firestore()
+        try await db.collection("posts").document(postId).setData(postData)
+
+        try await db.collection("users").document(author.uid).collection("postsICreate").document(postId).setData([
+            "postRef": db.collection("posts").document(postId).path,
+            "createdAt": FieldValue.serverTimestamp()
+        ])
     }
 
     // MARK: - Auth

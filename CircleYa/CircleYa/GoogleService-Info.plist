@@ -28,6 +28,11 @@
 	<true/>
 	<key>IS_SIGNIN_ENABLED</key>
 	<true/>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
 	<key>GOOGLE_APP_ID</key>
 	<string>1:43999425605:ios:489d62d13d378edfad1f2c</string>
 	<key>NSAppTransportSecurity</key>

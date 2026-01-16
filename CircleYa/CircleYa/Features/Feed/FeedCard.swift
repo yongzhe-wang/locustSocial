@@ -7,20 +7,20 @@ struct FeedCard: View {
     var showCaption: Bool = true
 
     // clamp portrait/square variety
-    private let aspectRange: ClosedRange<CGFloat> = 1.9...2.5
+    private let aspectRange: ClosedRange<CGFloat> = 1.2...1.8
     // clamp absolute height (tweak to taste)
-    private let minImageH: CGFloat = 160
-    private let maxImageH: CGFloat = 320
-    private let corner: CGFloat = 3
+    private let minImageH: CGFloat = 200
+    private let maxImageH: CGFloat = 400
+    private let corner: CGFloat = 24
 
     private var clampedAspect: CGFloat {
-        guard let m = post.media.first else { return 1.25 }
+        guard let m = post.media.first else { return 1.5 }
         let raw = max(CGFloat(m.height), 1) / max(CGFloat(m.width), 1)
         return min(max(raw, aspectRange.lowerBound), aspectRange.upperBound)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
 
             // IMAGE OR TEXT THUMBNAIL
             Group {
@@ -41,14 +41,6 @@ struct FeedCard: View {
                                 .frame(maxHeight: maxImageH)
                                 .clipShape(RoundedRectangle(cornerRadius: corner))
                                 .clipped()
-                                .overlay(
-                                    LinearGradient(
-                                        colors: [.clear, .black.opacity(0.55)],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                    .clipShape(RoundedRectangle(cornerRadius: corner))
-                                )
                                 .overlay(alignment: .topTrailing) {
                                     if post.media.count > 1 {
                                         HStack(spacing: 4) {
@@ -88,54 +80,32 @@ struct FeedCard: View {
             }
 
             // Caption below card; hide when there is no media to avoid repetition
-            if showCaption && !post.media.isEmpty {
-                if !post.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(post.title)
-                        .font(.footnote)
-                        .foregroundStyle(.primary)
-                        .lineLimit(captionLines)
-                        .padding(.horizontal, 6)
-                } else {
-                    Text(post.text)
-                        .font(.footnote)
-                        .foregroundStyle(.primary)
-                        .lineLimit(captionLines)
-                        .truncationMode(.tail)
-                        .padding(.horizontal, 6)
-                }
-            }
-
-            // FOOTER
-            HStack(spacing: 10) {
-                NavigationLink(value: post.author) {
-                    HStack(spacing: 10) {
-                        AvatarView(user: post.author, size: 15)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(post.author.displayName)
-                                .font(.caption2).fontWeight(.semibold)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
+            if showCaption {
+                VStack(alignment: .leading, spacing: 4) {
+                    if !post.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(post.title)
+                            .font(.system(.body, design: .rounded).weight(.medium))
+                            .foregroundStyle(Theme.textPrimary)
+                            .lineLimit(captionLines)
+                    }
+                    
+                    if !post.text.isEmpty {
+                        Text(post.text)
+                            .font(.system(.subheadline, design: .rounded))
+                            .foregroundStyle(Theme.textSecondary)
+                            .lineLimit(2)
                     }
                 }
-                .buttonStyle(.plain)
-
-                Spacer(minLength: 6)
-
-                if showActions {
-                    PostActionsView(post: post)
-                }
+                .padding(.horizontal, 4)
             }
         }
-        .padding(4)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(UIColor.secondarySystemBackground))
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.05), radius: 8, y: 4)
+        .padding(12)
+        .background(Theme.cardWhite)
+        .cornerRadius(corner)
+        .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 4)
     }
 }
+
 
 private struct IconCount: View {
     let name: String
@@ -183,7 +153,7 @@ struct PostActionsView: View {
                     Text("\(likeCount)")
                 }
                 .font(.caption)
-                .foregroundColor(isLiked ? .red : .secondary)
+                .foregroundColor(isLiked ? Theme.likeRed : .secondary)
             }
             .buttonStyle(.plain)
         }

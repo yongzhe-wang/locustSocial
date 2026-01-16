@@ -13,7 +13,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         let host = "127.0.0.1"
         
         
-        //Task { try? await TopicSeeder.seed100ViaAPI(usePicsum: true) }
+//        Task { try? await TopicSeeder.seed100ViaAPI(usePicsum: true) }
         
         
         
@@ -35,7 +35,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
 
 @main
-struct CircleYaApp: App {
+struct PplLikeMeApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
 
     @State private var isLoggedIn = false

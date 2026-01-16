@@ -33,4 +33,18 @@ struct PersonalizedFeedAPI: FeedAPI {
     func fetchNearby(cursor: String?) async throws -> FeedPage {
         try await feed.fetchNearby(cursor: cursor)
     }
+
+    // Interactions
+    func isPostLiked(_ postId: String) async -> Bool { await feed.isPostLiked(postId) }
+    func isPostSaved(_ postId: String) async -> Bool { await feed.isPostSaved(postId) }
+    func recordHistoryView(postId: String) async { await feed.recordHistoryView(postId: postId) }
+    func recordViewTime(postId: String, seconds: Double) async { await feed.recordViewTime(postId: postId, seconds: seconds) }
+    func toggleLike(for postId: String) async throws -> Bool { try await feed.toggleLike(for: postId) }
+    func toggleSave(for postId: String) async throws -> Bool { try await feed.toggleSave(for: postId) }
+    
+    // Comments
+    func addComment(postId: String, text: String, isAI: Bool) async throws -> Comment { 
+        try await feed.addComment(postId: postId, text: text, isAI: isAI) 
+    }
+    func fetchComments(postId: String, limit: Int) async throws -> [Comment] { try await feed.fetchComments(postId: postId, limit: limit) }
 }

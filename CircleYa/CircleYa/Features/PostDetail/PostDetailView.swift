@@ -1,90 +1,88 @@
-// Features/PostDetail/PostDetailView.swift
 import SwiftUI
-
-struct CommentThread: Identifiable {
-    let parent: Comment
-    let replies: [Comment]
-
-    var id: String { parent.id }
-}
 
 struct PostDetailView: View {
     let post: Post
-
-    private let api = FirebaseFeedAPI()
-    @State private var didLogView = false
-    @State private var viewStart: Date?
-
-    // post like/save
-    @State private var isLiked = false
-    @State private var isSaved = false
-    @State private var likeCount: Int
-
-    // comments (flat from Firestore)
+    @State private var adaptedPost: Post?
+    
+    private var displayPost: Post {
+        adaptedPost ?? post
+    }
+    
+    @Environment(\.container) private var container
+    private var api: FeedAPI { container.feedAPI }
+    
     @State private var comments: [Comment] = []
+    @State private var newComment: String = ""
+    
+    @State private var isLiked: Bool = false
+    @State private var isSaved: Bool = false
+    @State private var likeCount: Int = 0
+    
     @State private var isLoadingComments = false
-    @State private var newComment = ""
+    @State private var viewStart: Date?
+    @State private var didLogView = false
+    @State private var showSourceTrace = false
 
     init(post: Post) {
         self.post = post
         _likeCount = State(initialValue: post.likeCount)
     }
-
-    // MARK: - Threads from flat comments
-
-    private var commentThreads: [CommentThread] {
-        let parents = comments.filter { $0.parentId == nil }
-        let replies = comments.filter { $0.parentId != nil }
-        let groupedReplies = Dictionary(grouping: replies, by: { $0.parentId! })
-
-        return parents.map { parent in
-            CommentThread(
-                parent: parent,
-                replies: groupedReplies[parent.id] ?? []
-            )
-        }
-    }
-
-    // MARK: - Body
-
+    
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                ScrollViewReader { proxy in
+                    VStack(alignment: .leading, spacing: 0) {
+                        
+                        // MEDIA
+                        mediaView
+                            .padding(.bottom, 16)
 
-                    // IMAGE
-                    mediaView
+                        // AUTHOR
+                        authorRow
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 12)
 
-                    // AUTHOR
-                    authorRow
+                        // BODY TEXT
+                        VStack(alignment: .leading, spacing: 8) {
+                            if adaptedPost == nil {
+                                Text("Adapting content...")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            
+                            if !displayPost.title.isEmpty {
+                                Text(displayPost.title)
+                                    .font(.title3.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
 
-                    // TITLE
-                    if !post.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text(post.title)
-                            .font(.title2.weight(.semibold))
-                            .foregroundStyle(.primary)
+                            if !displayPost.text.isEmpty {
+                                Text(displayPost.text)
+                                    .font(.body)
+                                    .foregroundStyle(.primary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .lineSpacing(4)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 16)
+
+                        // META ROW
+                        metaRow
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 16)
+
+                        Divider()
+                            .padding(.bottom, 16)
+
+                        // COMMENTS
+                        commentsSection
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 32)
                     }
-
-                    // BODY TEXT
-                    if !post.text.isEmpty {
-                        Text(post.text)
-                            .font(.body)
-                            .foregroundStyle(.primary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    // META ROW
-                    metaRow
-
-                    Divider()
-                        .padding(.top, 4)
-
-                    // COMMENTS
-                    commentsSection
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
-                .padding(.bottom, 16)
             }
             .refreshable { await loadComments() }
 
@@ -96,7 +94,6 @@ struct PostDetailView: View {
                 .background(Color(.systemBackground))
         }
         .background(Color(.systemBackground).ignoresSafeArea())
-        .navigationTitle("Post")
         .navigationBarTitleDisplayMode(.inline)
         .task {
             if !didLogView {
@@ -107,6 +104,11 @@ struct PostDetailView: View {
             await loadComments()
             isLiked = await api.isPostLiked(post.id)
             isSaved = await api.isPostSaved(post.id)
+            
+            // Trigger content adaptation
+            if adaptedPost == nil {
+                adaptedPost = await ContentAdaptationService.shared.adaptPost(post)
+            }
         }
         .onAppear { viewStart = Date() }
         .onDisappear {
@@ -125,30 +127,36 @@ struct PostDetailView: View {
 
     private var mediaView: some View {
         Group {
-            if let first = post.media.first {
-                AsyncImage(url: first.url) { phase in
-                    switch phase {
-                    case .empty:
-                        Rectangle()
-                            .fill(.gray.opacity(0.12))
-                    case .success(let img):
-                        img.resizable()
-                            .scaledToFill()
-                    case .failure:
-                        Rectangle()
-                            .fill(.gray.opacity(0.12))
-                            .overlay(
-                                Image(systemName: "photo")
-                                    .foregroundColor(.gray)
-                            )
-                    @unknown default:
-                        EmptyView()
+            if !post.media.isEmpty {
+                TabView {
+                    ForEach(post.media) { media in
+                        AsyncImage(url: media.url) { phase in
+                            switch phase {
+                            case .empty:
+                                Rectangle()
+                                    .fill(.gray.opacity(0.12))
+                            case .success(let img):
+                                img.resizable()
+                                    .scaledToFill()
+                            case .failure:
+                                Rectangle()
+                                    .fill(.gray.opacity(0.12))
+                                    .overlay(
+                                        Image(systemName: "photo")
+                                            .foregroundColor(.gray)
+                                    )
+                            @unknown default:
+                                EmptyView()
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 320)
+                        .clipped()
+                        .tag(media.id)
                     }
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: 280)
-                .clipped()
-                .cornerRadius(16)
+                .tabViewStyle(.page)
+                .frame(height: 320)
             }
         }
     }
@@ -173,69 +181,72 @@ struct PostDetailView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
-                                .truncationMode(.tail)
                         }
                     }
                 }
             }
-            .buttonStyle(.plain)
-
             Spacer()
+            
+            // Timestamp
+            Text(post.createdAt.formatted(date: .abbreviated, time: .shortened))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
-
-    // MARK: - Meta row (date, like, save)
-
+    
+    // MARK: - Meta Row (It resonates / Keep this)
+    
     private var metaRow: some View {
-        HStack(spacing: 12) {
-            Text(
-                post.createdAt.formatted(
-                    date: .abbreviated,
-                    time: .shortened
-                )
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
-            Spacer()
-
-            // LIKE
+        HStack(spacing: 20) {
+            // LIKE -> It resonates
             Button {
                 toggleLikeOptimistic()
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: isLiked ? "heart.fill" : "heart")
-                    Text("\(likeCount)")
+                    Text("It resonates")
                 }
-                .font(.callout.weight(.semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule()
-                        .strokeBorder(isLiked ? Color.red.opacity(0.5) : Color.gray.opacity(0.25), lineWidth: 1)
-                )
-                .foregroundColor(isLiked ? .red : .primary)
+                .font(.subheadline)
+                .foregroundColor(isLiked ? Theme.likeRed : .secondary)
             }
             .buttonStyle(.plain)
 
-            // SAVE
+            // SAVE -> Keep this
             Button {
                 toggleSaveOptimistic()
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: isSaved ? "bookmark.fill" : "bookmark")
-                    Text("Save")
+                    Text("Keep this")
                 }
-                .font(.callout.weight(.semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule()
-                        .strokeBorder(isSaved ? Color.blue.opacity(0.5) : Color.gray.opacity(0.25), lineWidth: 1)
-                )
-                .foregroundColor(isSaved ? .blue : .primary)
+                .font(.subheadline)
+                .foregroundColor(isSaved ? Theme.primaryBrand : .secondary)
             }
             .buttonStyle(.plain)
+            
+            Spacer()
+            
+            // TRACE SOURCE (溯源)
+            if let original = displayPost.originalText {
+                Button {
+                    showSourceTrace = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "doc.text.magnifyingglass")
+                        Text("Trace Source")
+                    }
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+                .sheet(isPresented: $showSourceTrace) {
+                    SourceTraceView(post: displayPost)
+                        .presentationDetents([.medium, .large])
+                }
+            }
         }
     }
 
@@ -280,38 +291,37 @@ struct PostDetailView: View {
     // MARK: - Comments
 
     private var commentsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Comments")
+                Text("Conversation")
                     .font(.headline)
-                if !comments.isEmpty {
-                    Text("• \(comments.count)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
                 Spacer()
                 if isLoadingComments {
                     ProgressView()
                         .scaleEffect(0.7)
                 }
             }
+            
+            let commentThreads = comments.filter { !$0.isAI }
 
             if commentThreads.isEmpty && !isLoadingComments {
-                Text("Be the first to comment.")
+                Text("Be the first to add a thought.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 4)
             } else {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(commentThreads) { thread in
-                        CommentRow(
-                            postId: post.id,
-                            comment: thread.parent,
-                            replies: thread.replies,
-                            onReplyAdded: {
-                                Task { await loadComments() }
-                            }
-                        )
+                        VStack(alignment: .leading, spacing: 0) {
+                            CommentRow(
+                                postId: post.id,
+                                comment: thread,
+                                replies: [], // Assuming flat for now or handled in CommentRow
+                                onReplyAdded: {
+                                    Task { await loadComments() }
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -320,19 +330,20 @@ struct PostDetailView: View {
 
     private var commentInputBar: some View {
         HStack(spacing: 8) {
-            TextField("Write a comment…", text: $newComment, axis: .vertical)
+            TextField("If you want to add a thought…", text: $newComment, axis: .vertical)
                 .lineLimit(1...3)
                 .textFieldStyle(.roundedBorder)
 
-            Button {
-                Task { await addComment() }
-            } label: {
-                Text("Send")
-                    .font(.subheadline.weight(.semibold))
+            if !newComment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button {
+                    Task { await addComment() }
+                } label: {
+                    Text("Share")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .disabled(newComment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
     }
 
@@ -352,7 +363,7 @@ struct PostDetailView: View {
         let text = newComment.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         do {
-            _ = try await api.addComment(postId: post.id, text: text)
+            _ = try await api.addComment(postId: post.id, text: text, isAI: false)
             newComment = ""
             await loadComments()
         } catch {

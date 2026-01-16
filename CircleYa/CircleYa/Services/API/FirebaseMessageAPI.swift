@@ -9,6 +9,11 @@ import FirebaseAuth
 struct DMThread: Identifiable, Hashable {
     let id: String        // Firestore document id
     let members: [String] // user ids, always sorted
+    
+    func unreadCount(for userId: String) -> Int {
+        // TODO: Implement real unread count logic
+        return 0
+    }
 }
 
 struct DMMessage: Identifiable, Hashable {

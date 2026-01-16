@@ -6,7 +6,8 @@ struct TextThumbnailView: View {
     let cornerRadius: CGFloat
 
     private var primaryColor: Color {
-        let colors: [Color] = [.blue, .purple, .pink, .orange, .green, .indigo]
+        // Warm/Sunny palette
+        let colors: [Color] = [Theme.primaryBrand, Theme.likeRed, Theme.successGreen, .orange, .red]
         let idx = abs(title.hashValue) % colors.count
         return colors[idx]
     }
@@ -18,8 +19,8 @@ struct TextThumbnailView: View {
                 .fill(
                     LinearGradient(
                         gradient: Gradient(colors: [
-                            primaryColor.opacity(0.18),
-                            primaryColor.opacity(0.08)
+                            primaryColor.opacity(0.25),
+                            primaryColor.opacity(0.1)
                         ]),
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing

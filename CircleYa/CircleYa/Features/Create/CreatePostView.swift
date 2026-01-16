@@ -6,7 +6,7 @@ struct CreatePostView: View {
     // MARK: - Properties
     @State private var title = ""
     @State private var bodyText = ""
-    @State private var selectedImage: UIImage?
+    @State private var selectedImages: [UIImage] = []
     @State private var isPostingGate = false        // UI gate for 1s cooldown
     @State private var showPicker = false
     @State private var errorText: String?
@@ -17,114 +17,181 @@ struct CreatePostView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        // 1) Title
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Title")
-                                .font(.subheadline).fontWeight(.semibold)
-                                .foregroundColor(.secondary)
-                            TextField("Enter a title", text: $title)
-                                .padding()
-                                .background(Color(.systemGray6))
-                                .cornerRadius(12)
-                        }
-
-                        // 2) Content
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text("Content")
-                                    .font(.subheadline).fontWeight(.semibold)
-                                    .foregroundColor(.secondary)
-                                Spacer()
-                                // live word counter
-                            }
-
-                            ZStack(alignment: .topLeading) {
-                                if bodyText.isEmpty {
-                                    Text("What's on your mind?")
-                                        .foregroundColor(.gray.opacity(0.6))
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 16)
-                                }
-                                TextEditor(text: $bodyText)
-                                    .scrollContentBackground(.hidden)
-                                    .padding(8)
-                                    .frame(minHeight: 150)
-                                    .background(Color(.systemGray6))
-                                    .cornerRadius(12)
-                            }
-
-                        }
-
-                        // 3) Image preview
-                        if let selectedImage {
-                            ZStack(alignment: .topTrailing) {
-                                Image(uiImage: selectedImage)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 220)
-                                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                                    .clipped()
-                                Button {
-                                    withAnimation { self.selectedImage = nil }
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(.white)
-                                        .background(Color.black.opacity(0.4))
-                                        .clipShape(Circle())
-                                }
-                                .padding(10)
-                            }
-                        }
-
-                        // 4) Add photo
-                        HStack {
-                            Button { showPicker = true } label: {
-                                Image(systemName: "photo.on.rectangle")
-                                    .font(.title2)
-                                    .foregroundColor(.blue)
-                                    .padding(10)
-                                    .background(Color.blue.opacity(0.1))
-                                    .clipShape(Circle())
-                            }
-                            Spacer()
-                        }
-                        .padding(.top, 4)
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: 24) {
+                        titleSection
+                        contentSection
+                        imagePreviewSection
+                        addPhotoButton
                     }
                     .padding()
                 }
 
-                // 5) Sticky Post button
+                postButtonSection
+            }
+            .navigationTitle("Share a moment")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(Theme.backgroundMain, for: .navigationBar)
+            .background(Theme.backgroundMain)
+            .sheet(isPresented: $showPicker) {
+                PhotoPicker(images: $selectedImages)
+            }
+            .alert("Upload failed", isPresented: Binding(
+                get: { errorText != nil },
+                set: { if !$0 { errorText = nil } }
+            )) {
+                Button("OK") { errorText = nil }
+            } message: {
+                Text(errorText ?? "")
+            }
+        }
+    }
+
+    // MARK: - Subviews
+
+    private var titleSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            TextField("Topic or Title", text: $title)
+                .font(.system(.title3, design: .rounded).weight(.semibold))
+                .padding()
+                .background(Theme.cardWhite)
+                .cornerRadius(16)
+                .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
+        }
+    }
+
+    private var contentSection: some View {
+        ZStack(alignment: .topLeading) {
+            if bodyText.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Something that stayed with you today…")
+                    Text("A small thought you don’t want to lose")
+                }
+                .font(.system(.body, design: .rounded))
+                .foregroundColor(Theme.textHint)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 20)
+            }
+            TextEditor(text: $bodyText)
+                .font(.system(.body, design: .rounded))
+                .scrollContentBackground(.hidden)
+                .padding(12)
+                .frame(minHeight: 200)
+                .background(Theme.secondaryBrand.opacity(0.1))
+                .cornerRadius(16)
+        }
+    }
+
+    @ViewBuilder
+    private var imagePreviewSection: some View {
+        if !selectedImages.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    imagePreviewList
+                    addMoreButton
+                }
+            }
+        }
+    }
+
+    private var imagePreviewList: some View {
+        ForEach(0..<selectedImages.count, id: \.self) { index in
+            imagePreviewCell(at: index)
+        }
+    }
+
+    private func imagePreviewCell(at index: Int) -> some View {
+        ZStack(alignment: .topTrailing) {
+            Image(uiImage: selectedImages[index])
+                .resizable()
+                .scaledToFill()
+                .frame(width: 200, height: 200)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .clipped()
+            
+            Button {
+                removeImage(at: index)
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title3)
+                    .foregroundColor(.white)
+                    .background(Color.black.opacity(0.4))
+                    .clipShape(Circle())
+            }
+            .padding(8)
+        }
+    }
+
+    private func removeImage(at index: Int) {
+        withAnimation {
+            if selectedImages.indices.contains(index) {
+                selectedImages.remove(at: index)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var addMoreButton: some View {
+        if selectedImages.count < 10 {
+            Button {
+                showPicker = true
+            } label: {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Theme.secondaryBrand.opacity(0.2))
+                        .frame(width: 100, height: 200)
+                    
+                    Image(systemName: "plus")
+                        .font(.title)
+                        .foregroundColor(Theme.primaryBrand)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var addPhotoButton: some View {
+        HStack {
+            Button { showPicker = true } label: {
+                HStack {
+                    Image(systemName: "camera")
+                    Text("Add Photo")
+                }
+                .font(.subheadline)
+                .foregroundColor(Theme.primaryBrand)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Theme.primaryBrand.opacity(0.1))
+                .cornerRadius(20)
+            }
+            Spacer()
+        }
+        .padding(.top, 8)
+    }
+
+    private var postButtonSection: some View {
+        Group {
+            if isFormValid {
                 VStack {
                     Button {
                         handlePost()
                     } label: {
-                        Text(isPostingGate ? "Posting…" : "Post")
-                            .font(.headline)
+                        Text(isPostingGate ? "Sharing…" : "Share")
+                            .font(.system(.headline, design: .rounded))
                             .frame(maxWidth: .infinity)
                     }
                     .padding()
                     .frame(maxWidth: .infinity)
-                    .background(isFormValid ? Color.blue : Color.gray.opacity(0.3))
+                    .background(Theme.gradient)
                     .foregroundColor(.white)
                     .cornerRadius(16)
-                    .disabled(!isFormValid || isPostingGate)
+                    .disabled(isPostingGate)
                 }
                 .padding()
+                .padding(.bottom, 80) // Avoid overlap with floating tab bar
                 .background(Color(.systemBackground))
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            .navigationTitle("Create")
-            .navigationBarTitleDisplayMode(.inline)
-            .sheet(isPresented: $showPicker) {
-                PhotoPicker(image: $selectedImage)
-            }
-            .alert("Upload failed", isPresented: .constant(errorText != nil), actions: {
-                Button("OK") { errorText = nil }
-            }, message: {
-                Text(errorText ?? "")
-            })
         }
     }
 
@@ -153,17 +220,17 @@ struct CreatePostView: View {
         // Capture current values so we can reset UI immediately
         let postTitle = title
         let postBody  = bodyText
-        let postImage = selectedImage
+        let postImages = selectedImages
 
         // Immediately reset the UI so user can type a new post soon
         title = ""
         bodyText = ""
-        selectedImage = nil
+        selectedImages = []
 
         // Kick off the upload in the background
         Task.detached {
             do {
-                try await api.uploadPost(title: postTitle, text: postBody, image: postImage)
+                try await api.uploadPost(title: postTitle, text: postBody, images: postImages)
             } catch {
                 // Surface error without blocking the UI
                 await MainActor.run { errorText = error.localizedDescription }
