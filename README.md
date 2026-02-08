@@ -184,6 +184,7 @@ Our backend leverages machine learning to rank posts based on:
 2. **Configure Firebase**
    - Add your `GoogleService-Info.plist` to the project
    - Update Firebase project ID in the configuration
+   - **⚠️ Important**: Never commit Firebase credentials to git. See [backend/FIREBASE_SETUP.md](backend/FIREBASE_SETUP.md) for security guidelines.
 
 3. **Build and run**
    - Select target device/simulator
