@@ -150,3 +150,8 @@ cython_debug/
 
 # macOS
 .DS_Store
+
+# Firebase credentials - NEVER commit these!
+*firebase-adminsdk*.json
+service-account*.json
+firebase-credentials.json
