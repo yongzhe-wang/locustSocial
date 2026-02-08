@@ -9,7 +9,7 @@ def _compute_and_save_embedding(
     post_id: int,
     firebase_id: str | None,
     text: str,
-    img_bytes_list: list[bytes] | None,
+    img_bytes: bytes | None,
 ):
     print(f"[embed] start post_id={post_id}")
 
@@ -27,11 +27,11 @@ def _compute_and_save_embedding(
         row = cur.fetchone()
 
     full_text = (row["title"] + " " + row["body"]).strip()
-    print(f"[embed] text_preview='{full_text[:80]}' images={len(img_bytes_list) if img_bytes_list else 0}")
+    print(f"[embed] text_preview='{full_text[:80]}' image={'yes' if img_bytes else 'no'}")
 
     e = cohere_embed(
         full_text,
-        img_bytes_list,
+        img_bytes,
         input_type="search_document",
         output_dimension=settings.COHERE_EMBED_DIM,
     )

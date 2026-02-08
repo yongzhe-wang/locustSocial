@@ -23,7 +23,6 @@ services:
       FUSE_ALPHA: ${FUSE_ALPHA:-0.5}
       EMBEDDING_DIM: ${EMBEDDING_DIM:-512}
       FIREBASE_WEBHOOK_SECRET: ${FIREBASE_WEBHOOK_SECRET:-changeme}
-      FIRESTORE_EMULATOR_HOST: "host.docker.internal:8080"
     depends_on:
       - postgres
     ports:

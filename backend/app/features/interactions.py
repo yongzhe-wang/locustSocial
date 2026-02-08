@@ -146,23 +146,3 @@ def upsert_user_embedding(uid: str, k: int = 30) -> dict:
         )
     print(f"[profile] force recompute done uid={uid} examples_count={len(vecs)}")
     return {"uid": uid, "examples_count": len(vecs)}
-
-def fetch_user_liked_posts_content(uid: str, limit: int = 3) -> List[str]:
-    """
-    Fetch the body text of posts the user has liked or interacted with positively (weight >= 3.0).
-    """
-    with conn() as c, c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            """
-            SELECT p.body
-            FROM user_events ue
-            JOIN posts p ON p.id = ue.post_id
-            WHERE ue.uid = %s AND ue.weight >= 3.0
-            ORDER BY ue.ts DESC
-            LIMIT %s
-            """,
-            (uid, limit),
-        )
-        rows = cur.fetchall()
-    
-    return [r["body"] for r in rows if r.get("body")]

@@ -48,15 +48,3 @@ class UserEventIn(BaseModel):
     firebase_post_id: str | None = None
     post_id: int | None = None
     weight: float | None = None  # optional override
-
-class AdaptContentRequest(BaseModel):
-    text: str
-    title: str | None = None
-    style: str = "engaging"
-    uid: str | None = None
-
-class AdaptContentResponse(BaseModel):
-    adapted_text: str
-    adapted_title: str | None = None
-    facts: List[str]
-    modifications: List[str]

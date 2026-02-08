@@ -5,7 +5,7 @@
   "engines": { "node": "22" },
   "scripts": {
     "lint": "eslint .",
-    "serve": "cross-env BACKEND_URL=http://127.0.0.1:8000 BACKEND_SECRET=this-is-my-local-secret-3minutes firebase emulators:start --only functions,firestore,storage",
+    "serve": "cross-env BACKEND_URL=http://127.0.0.1:8000 BACKEND_SECRET=this-is-my-local-secret-locustsocial firebase emulators:start --only functions,firestore,storage",
     "start": "npm run serve",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log"

@@ -22,13 +22,13 @@ sudo apt-get update && sudo apt-get install -y git
 
 git config --global credential.helper store   # optional
 
-git clone https://github.com/yongzhe-wang/social_media_project.git
+git clone https://github.com/yongzhe-wang/LocustSocial.git
 # When prompted:
 #   Username: <your GitHub username>
 #   Password: <your Personal Access Token with repo scope>
 
 
-cd social_media_project/backend
+cd LocustSocial/backend
 
 cp .env.example .env
 docker compose up -d --build
@@ -37,14 +37,14 @@ docker compose ps
 
 6109022100
 
-cd ~/social_media_project/backend
+cd ~/LocustSocial/backend
 docker compose logs -f api
 
 
 
 UPDATE FILES
 
-cd ~/social_media_project
+cd ~/LocustSocial
 cp backend/.env /tmp/backend.env || true
 
 git fetch --all
@@ -53,7 +53,7 @@ git reset --hard origin/main
 
 [ -f /tmp/backend.env ] && cp /tmp/backend.env backend/.env
 
-cd ~/social_media_project/backend
+cd ~/LocustSocial/backend
 docker compose down
 docker compose up -d --build
 
@@ -70,10 +70,10 @@ docker compose logs -f api
 
 @@@@@@@@@@Start backend
 
-cd /Users/thebigsun/Desktop/projects/social_media_project/social_media_project/backend
+cd /Users/thebigsun/Desktop/projects/LocustSocial/backend
 source venv311/bin/activate
 export PG_DSN="postgres://app:secret@localhost:5432/app"
-export FIREBASE_WEBHOOK_SECRET=this-is-my-local-secret-3minutes
+export FIREBASE_WEBHOOK_SECRET=this-is-my-local-secret-locustsocial
 set -a; source .env; set +a
 python - <<'PY'
 import os; print("COHERE_API_KEY present?" , bool(os.environ.get("COHERE_API_KEY")))
@@ -85,7 +85,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 Check sql
 
-Cd /Users/thebigsun/Desktop/projects/social_media_project/social_media_project/backend
+Cd /Users/thebigsun/Desktop/projects/LocustSocial/backend
 
 docker compose exec postgres psql -U app -d app
 
@@ -116,7 +116,7 @@ TRUNCATE TABLE posts RESTART IDENTITY CASCADE;
 firebase login
 
 
-cd /Users/thebigsun/Desktop/projects/social_media_project/social_media_project/firebase/firebase
+cd /Users/thebigsun/Desktop/projects/LocustSocial/firebase/firebase
 firebase emulators:start
 
 
@@ -165,7 +165,7 @@ pip install -U pip
 
 Local runs
 
-cd ~/Desktop/projects/social_media_project/social_media_project/backend
+cd ~/Desktop/projects/LocustSocial/backend
 python3 -m venv vena
 source venv/bin/activate
 pip install --upgrade pip
